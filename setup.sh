@@ -1236,6 +1236,12 @@ if [[ $INSTALL_DAEMON -eq 1 ]]; then
     # install a daemon-only copy into /usr/local and use system Python.
     SYSTEM_SITE=$("$SYSTEM_PYTHON" -c \
         'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+    # pip --target does not uninstall a previous version, so a stale dist-info
+    # directory would make pip and importlib.metadata report the old release.
+    for dist in "$SYSTEM_SITE"/vemu-*.dist-info; do
+        [[ -e "$dist" ]] || continue
+        "${SUDO[@]}" rm -rf "$dist"
+    done
     PIP_FLAGS=(
         --disable-pip-version-check --no-deps --upgrade
         --target "$SYSTEM_SITE" --root-user-action=ignore
