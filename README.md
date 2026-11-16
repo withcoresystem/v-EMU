@@ -80,10 +80,13 @@ There is no TCG-only host mode; cross-architecture TCG is optional for guests.
 | Core v-EMU: lifecycle, snapshots, storage, networking, VNC | supported | supported | supported |
 | External TigerVNC console | supported* | supported* | supported* |
 | Image Builder (qcow2/ISO) | supported | unavailable | unavailable |
-| Arch family | experimental `contrib/setup-arch.sh`, core only | — | — |
 
 \* Install `tigervnc` (Fedora/RHEL/openSUSE) or `tigervnc-viewer`
 (Debian/Ubuntu); external mode stays disabled when `vncviewer` is missing.
+
+Arch family (CachyOS, Omarchy and similar) is an experimental, core-only path
+through `contrib/setup-arch.sh`; it has no Image Builder and is not part of the
+`.run` payload.
 
 The host matrix covers all three Linux families for core vEMU. **Image Builder
 is intentionally limited to Fedora/RHEL-family hosts in 0.2.0**: Debian and
