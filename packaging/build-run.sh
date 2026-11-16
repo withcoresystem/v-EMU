@@ -34,6 +34,9 @@ cp "$ROOT/MANUAL.md" "$ROOT/BUILDER.md" "$ROOT/README.md" \
 cp "$ROOT/docs/USER-GUIDE.md" "$ROOT/docs/ARCHITECTURE.md" \
     "$ROOT/docs/ARCH-EXPERIMENTAL.md" "$ROOT/docs/BUILDER-BRANDING.md" \
     "$TMP/vEMU/docs/"
+mkdir -p "$TMP/vEMU/docs/release-notes"
+cp "$ROOT/docs/release-notes/v0.1.0.md" "$ROOT/docs/release-notes/v0.2.0.md" \
+    "$TMP/vEMU/docs/release-notes/"
 
 chmod +x "$TMP/vEMU/setup.sh" "$TMP/vEMU/packaging/vemu-installer.sh"
 tar -C "$TMP" -czf "$TMP/payload.tar.gz" vEMU
