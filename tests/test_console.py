@@ -10,7 +10,11 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-gpu")
 
-from vemu.backend import ensure_vnc_websocket, parse_vnc_graphics
+from vemu.backend import (
+    ensure_vnc_websocket,
+    parse_spice_graphics,
+    parse_vnc_graphics,
+)
 from vemu.errors import Conflict, NotFound
 from vemu.ui.console import (
     ConsoleServer,
@@ -26,6 +30,17 @@ VNC_XML = """<domain type='kvm'>
   </devices>
 </domain>"""
 
+SPICE_XML = """<domain type='kvm'>
+  <devices>
+    <graphics type='spice' port='5900' autoport='yes' listen='127.0.0.1'>
+      <listen type='address' address='127.0.0.1'/>
+    </graphics>
+    <graphics type='egl-headless'>
+      <gl rendernode='/dev/dri/renderD128'/>
+    </graphics>
+  </devices>
+</domain>"""
+
 
 class BackendConsoleTests(unittest.TestCase):
     def test_parse_vnc(self) -> None:
@@ -36,6 +51,27 @@ class BackendConsoleTests(unittest.TestCase):
     def test_parse_missing(self) -> None:
         with self.assertRaises(NotFound):
             parse_vnc_graphics("<domain><devices/></domain>")
+
+    def test_parse_spice(self) -> None:
+        info = parse_spice_graphics(SPICE_XML)
+        self.assertEqual(info["host"], "127.0.0.1")
+        self.assertEqual(info["port"], 5900)
+        self.assertIsNone(info["tls_port"])
+
+    def test_parse_spice_missing(self) -> None:
+        with self.assertRaises(NotFound):
+            parse_spice_graphics("<domain><devices/></domain>")
+
+    def test_parse_spice_unallocated(self) -> None:
+        with self.assertRaises(Conflict):
+            parse_spice_graphics(
+                SPICE_XML.replace("port='5900'", "port='-1'")
+            )
+
+    def test_parse_spice_listen_address_wins(self) -> None:
+        xml = SPICE_XML.replace("listen='127.0.0.1'", "listen='0.0.0.0'")
+        info = parse_spice_graphics(xml)
+        self.assertEqual(info["host"], "127.0.0.1")
 
     def test_parse_unallocated(self) -> None:
         xml = VNC_XML.replace("5900", "-1").replace("5700", "-1")

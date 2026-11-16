@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -7,6 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from vemu import service
+from vemu.chain import ChainManager
 from vemu.errors import Conflict
 
 XML = """<domain type='kvm'>
@@ -76,8 +80,11 @@ class FakeManager:
     def info(self) -> dict:
         return {"active": "0002", "layers": []}
 
-    def revert(self, layer: str) -> None:
+    def revert(self, layer: str, *, cleanup: bool = True) -> None:
         self.revert_calls.append(layer)
+
+    def cleanup_deferred(self) -> None:
+        return None
 
 
 class FailingManager(FakeManager):
@@ -309,6 +316,103 @@ class SnapshotCdTests(unittest.TestCase):
             result = service.snapshots_revert("vm1", "0001")
         self.assertEqual(result["ejected"], ["sdb", "sdc"])
         self.assertEqual(manager.revert_calls, ["0001"])
+
+
+@unittest.skipUnless(shutil.which("qemu-img"), "qemu-img is required")
+class RealChainServiceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        base = root / "base.qcow2"
+        subprocess.run(
+            [shutil.which("qemu-img"), "create", "-f", "qcow2", str(base), "16M"],
+            check=True,
+            capture_output=True,
+        )
+        self.chain_dir = root / "chain"
+        ChainManager.create(self.chain_dir, base)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _xml(self, layer: str) -> str:
+        return (
+            "<domain><devices>"
+            "<disk type='file' device='disk'>"
+            f"<source file='{self.chain_dir / f'disk-vda-{layer}.qcow2'}'/>"
+            "<target dev='vda'/>"
+            "</disk></devices></domain>"
+        )
+
+    def _run(self, xml: str, action):
+        backend = FakeBackend(xml)
+        updates: list[dict[str, str]] = []
+
+        def update(_name: str, changes: dict[str, str]) -> None:
+            updates.append(dict(changes))
+
+        backend.update_disk_sources = update  # type: ignore[method-assign]
+
+        class Context:
+            def __enter__(self):
+                return backend
+
+            def __exit__(self, *_args):
+                return False
+
+        with mock.patch.object(
+            service, "LibvirtBackend", return_value=Context()
+        ), mock.patch.object(
+            service, "_require_stopped", return_value=self.chain_dir
+        ), mock.patch.object(
+            service, "_relabel", return_value=None
+        ), mock.patch.object(
+            service, "_eject_all_cdroms", return_value=[]
+        ):
+            payload = action()
+        return payload, updates
+
+    def test_snapshot_switches_domain_to_new_current_layer(self) -> None:
+        payload, updates = self._run(
+            self._xml("0001"),
+            lambda: service.snapshots_create("vm1", "S1"),
+        )
+        self.assertEqual(payload["layer"]["id"], "0001")
+        self.assertEqual(payload["active"], "0002")
+        self.assertEqual(
+            updates,
+            [
+                {
+                    str(self.chain_dir / "disk-vda-0001.qcow2"): str(
+                        self.chain_dir / "disk-vda-0002.qcow2"
+                    )
+                }
+            ],
+        )
+
+    def test_revert_switches_domain_and_cleans_discarded_layer(self) -> None:
+        self._run(
+            self._xml("0001"),
+            lambda: service.snapshots_create("vm1", "S1"),
+        )
+        payload, updates = self._run(
+            self._xml("0002"),
+            lambda: service.snapshots_revert("vm1", "0001"),
+        )
+        self.assertEqual(payload["active"], "0003")
+        self.assertEqual(
+            updates,
+            [
+                {
+                    str(self.chain_dir / "disk-vda-0002.qcow2"): str(
+                        self.chain_dir / "disk-vda-0003.qcow2"
+                    )
+                }
+            ],
+        )
+        self.assertFalse(
+            (self.chain_dir / "disk-vda-0002.qcow2").exists()
+        )
 
 
 if __name__ == "__main__":

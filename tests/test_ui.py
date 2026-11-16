@@ -129,9 +129,7 @@ class UiTests(unittest.TestCase):
         self.assertFalse(QFontInfo(ui_font()).fixedPitch())
         self.assertTrue(QFontInfo(mono_font()).fixedPitch())
 
-    def test_main_window_shortcuts_include_map_and_console(self) -> None:
-        from PySide6.QtGui import QShortcut
-
+    def test_window_size_is_remembered_between_launches(self) -> None:
         from vemu.ui.app import MainWindow
 
         class FakeBackend:
@@ -141,15 +139,93 @@ class UiTests(unittest.TestCase):
             def close(self) -> None:
                 return None
 
+        class FakeSettings:
+            def __init__(self, data: dict | None = None) -> None:
+                self.data = dict(data or {})
+
+            def value(self, key, default=None, type=None):
+                value = self.data.get(key, default)
+                if type is bool:
+                    return bool(value)
+                if type is int:
+                    try:
+                        return int(value)
+                    except (TypeError, ValueError):
+                        return default
+                return value
+
+            def setValue(self, key: str, value) -> None:
+                self.data[key] = value
+
         window = MainWindow(FakeBackend(), dark=False)  # type: ignore[arg-type]
         try:
+            window.resize(1500, 900)
+            settings = FakeSettings()
+            window._settings = settings
+            window._save_window_size()
+            self.assertEqual(settings.data["ui/window_width"], 1500)
+            self.assertEqual(settings.data["ui/window_height"], 900)
+
+            window.resize(1280, 720)
+            window._settings = FakeSettings(
+                {"ui/window_width": 1600, "ui/window_height": 1000}
+            )
+            window._restore_window_size()
+            self.assertEqual((window.width(), window.height()), (1600, 1000))
+
+            # A stale size below the enforced minimum is ignored.
+            window._settings = FakeSettings(
+                {"ui/window_width": 900, "ui/window_height": 600}
+            )
+            window._restore_window_size()
+            self.assertEqual((window.width(), window.height()), (1600, 1000))
+        finally:
+            window._settings = FakeSettings()
+            window.close()
+
+    def test_main_window_shortcuts_include_map_and_console(self) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QShortcut
+
+        from vemu.ui.app import MainWindow
+        from vemu.ui.dialogs import VemuDialog
+
+        class FakeBackend:
+            def list_domains(self) -> list:
+                return []
+
+            def close(self) -> None:
+                return None
+
+        window = MainWindow(FakeBackend(), dark=False)  # type: ignore[arg-type]
+        dialog = VemuDialog(window)
+        try:
+            dialog.show()
+            self.app.processEvents()
+            self.assertTrue(dialog.isVisible())
             sequences = {
                 shortcut.key().toString()
                 for shortcut in window.findChildren(QShortcut)
             }
             self.assertIn("Ctrl+Shift+M", sequences)
             self.assertIn("Ctrl+Shift+K", sequences)
+            self.assertIn("Ctrl+Q", sequences)
+            self.assertIn("Ctrl+3", sequences)
+            self.assertIn("Ctrl+N", sequences)
+            quit_shortcut = next(
+                shortcut
+                for shortcut in window.findChildren(QShortcut)
+                if shortcut.key().toString() == "Ctrl+Q"
+            )
+            self.assertEqual(
+                quit_shortcut.context(),
+                Qt.ShortcutContext.ApplicationShortcut,
+            )
+            quit_shortcut.activated.emit()
+            self.assertTrue(window._shutting_down)
+            self.assertFalse(dialog.isVisible())
         finally:
+            dialog.close()
             window.close()
 
     def test_dialog_is_independent_non_modal_window(self) -> None:
@@ -618,6 +694,64 @@ class UiTests(unittest.TestCase):
 
             window._resume_selected()
             self.assertEqual(backend.resumed, ["vm-suspended"])
+        finally:
+            window.close()
+
+    def test_spice_console_uses_remote_viewer(self) -> None:
+        from types import SimpleNamespace
+
+        from vemu.backend import DomainInfo
+        from vemu.ui.app import MainWindow
+
+        class FakeBackend:
+            def list_domains(self) -> list[DomainInfo]:
+                return [
+                    DomainInfo(
+                        "vm-spice",
+                        "uuid-sp",
+                        "running",
+                        ["/tmp/disk.qcow2"],
+                        False,
+                        "bios",
+                        "v-EMU (full)",
+                    )
+                ]
+
+            def console_info(self, name: str) -> dict:
+                return {
+                    "domain": name,
+                    "kind": "spice",
+                    "host": "127.0.0.1",
+                    "port": 5900,
+                    "tls_port": None,
+                    "password": None,
+                }
+
+            def close(self) -> None:
+                return None
+
+        class FakeManager:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict]] = []
+
+            def launch(self, name: str, info: dict) -> SimpleNamespace:
+                self.calls.append((name, info))
+                return SimpleNamespace(
+                    log_path=Path("/tmp/spice-viewer-vm-spice.log")
+                )
+
+        backend = FakeBackend()
+        window = MainWindow(backend, dark=True)  # type: ignore[arg-type]
+        manager = FakeManager()
+        window.spice_viewers = manager  # type: ignore[assignment]
+        try:
+            window.table.selectRow(0)
+            with mock.patch("vemu.ui.console.ConsoleWindow") as console_cls:
+                window._open_console()
+            console_cls.assert_not_called()
+            self.assertEqual(len(manager.calls), 1)
+            self.assertEqual(manager.calls[0][0], "vm-spice")
+            self.assertEqual(manager.calls[0][1]["kind"], "spice")
         finally:
             window.close()
 
@@ -3406,7 +3540,18 @@ class UiTests(unittest.TestCase):
 
             self.assertIsNotNone(clone.findChild(QScrollArea))
             self.assertLessEqual(clone.height(), 700)
+            self.assertEqual(
+                [button.text() for button in clone.tabs.buttons],
+                ["General", "Linux"],
+            )
             self.assertTrue(clone.cloud_init_check.isEnabled())
+            self.assertTrue(clone.identity_check.isChecked())
+            self.assertFalse(clone.windows_oobe_check.isEnabled())
+            clone.cloud_init_check.setChecked(True)
+            self.assertFalse(clone.identity_check.isChecked())
+            self.assertFalse(clone.identity_check.isEnabled())
+            clone.cloud_init_check.setChecked(False)
+            self.assertTrue(clone.identity_check.isEnabled())
             self.assertFalse(clone.windows_oobe_check.isEnabled())
             clone.count_edit.setText("1")
             clone.name_edit.setText("clone-{{n}}")
@@ -3414,6 +3559,55 @@ class UiTests(unittest.TestCase):
             clone._clone()
         finally:
             clone.close()
+
+    def test_clone_dialog_context_tabs(self) -> None:
+        from vemu.ui.templates_page import TemplateCloneDialog
+
+        class FakeBackend:
+            def clone_create(self, **params) -> dict:
+                return {"created": [{"name": params["name"]}]}
+
+        base = {
+            "memory_mib": 2048,
+            "vcpus": 2,
+            "sysprepped": False,
+        }
+        linux = TemplateCloneDialog(
+            FakeBackend(),
+            {**base, "name": "linux-base", "os_family": "linux"},
+            "/tmp/templates",
+            "/tmp/labs",
+            [{"name": "lab-nat", "mode": "nat"}],
+        )
+        try:
+            self.assertEqual(
+                [button.text() for button in linux.tabs.buttons],
+                ["General", "Linux"],
+            )
+            self.assertTrue(linux.ci_fields.isHidden())
+            linux.cloud_init_check.setChecked(True)
+            self.assertFalse(linux.ci_fields.isHidden())
+            self.assertFalse(linux.identity_check.isEnabled())
+            self.assertEqual(linux.stack.count(), 2)
+        finally:
+            linux.close()
+
+        windows = TemplateCloneDialog(
+            FakeBackend(),
+            {**base, "name": "win-base", "os_family": "windows"},
+            "/tmp/templates",
+            "/tmp/labs",
+            [{"name": "lab-nat", "mode": "nat"}],
+        )
+        try:
+            self.assertEqual(
+                [button.text() for button in windows.tabs.buttons],
+                ["General"],
+            )
+            self.assertTrue(windows.tabs.isHidden())
+            self.assertFalse(windows.windows_oobe_check.isEnabled())
+        finally:
+            windows.close()
 
     def test_template_import_dialog_os_family(self) -> None:
         from vemu.ui.templates_page import TemplateImportDialog
@@ -3503,6 +3697,11 @@ class UiTests(unittest.TestCase):
                     self.assertEqual(
                         dialog.network_combo.currentData(), "lab-nat"
                     )
+                    self.assertEqual(
+                        [button.text() for button in dialog.tabs.buttons],
+                        ["General", "Windows"],
+                    )
+                    self.assertFalse(dialog.cloud_init_check.isEnabled())
                     self.assertFalse(dialog.windows_oobe_check.isChecked())
                     self.assertFalse(
                         dialog.windows_password_edit.isEnabled()

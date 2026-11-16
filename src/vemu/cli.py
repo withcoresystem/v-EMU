@@ -203,15 +203,19 @@ def _print_chain_info(info: dict[str, Any], as_json: bool) -> None:
     print(f"Active: {info['active']}")
     print(f"Disk:   {info['active_disk']}")
     print()
+    model = int(info.get("snapshot_model") or 1)
     rows = []
     for layer in info["layers"]:
         marker = "*" if layer["active"] else " "
         size_mb = layer["actual_size"] / (1024 * 1024)
+        label = layer["label"] or "-"
+        if model >= 2 and layer["active"]:
+            label = "Current"
         rows.append(
             [
                 marker,
                 layer["id"],
-                layer["label"] or "-",
+                label,
                 layer["parent"],
                 f"{size_mb:.1f} MB",
             ]
@@ -394,22 +398,44 @@ def _cmd_console(args: argparse.Namespace) -> int:
         )
     else:
         payload = service.console_info(args.domain, args.uri)
+    viewer: dict[str, object] | None = None
+    viewer_label: str | None = None
+    kind = str(payload.get("kind") or "vnc")
+    if args.open:
+        if kind == "spice":
+            from .external_spice import SpiceViewerManager
+
+            handle = SpiceViewerManager().launch(args.domain, payload)
+            viewer_label = "remote-viewer"
+        else:
+            from .external_vnc import ViewerManager
+
+            handle = ViewerManager().launch(args.domain, payload)
+            viewer_label = "TigerVNC"
+        viewer = {
+            "command": handle.command,
+            "log_path": str(handle.log_path),
+        }
+        payload = {**payload, "viewer": viewer}
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        print(
-            f"{args.domain}: vnc://{payload.get('host') or '127.0.0.1'}:"
-            f"{payload.get('port')} (websocket {payload.get('websocket')})"
-        )
-    if args.open:
-        viewer = shutil.which("virt-viewer") or shutil.which("remote-viewer")
-        if not viewer:
-            raise ValidationError(
-                "No virt-viewer/remote-viewer found. Install virt-viewer or "
-                "use the desktop app."
+        host = payload.get("host") or "127.0.0.1"
+        port = payload.get("port")
+        if kind == "spice":
+            from .external_spice import viewer_uri
+
+            print(f"{args.domain}: {viewer_uri(str(host), int(port))}")
+        else:
+            print(
+                f"{args.domain}: vnc://{host}:{port} "
+                f"(websocket {payload.get('websocket')})"
             )
-        url = f"vnc://{payload.get('host') or '127.0.0.1'}:{payload.get('port')}"
-        return subprocess.call([viewer, url])
+        if viewer is not None:
+            print(
+                f"{args.domain}: {viewer_label} opened "
+                f"(log: {viewer['log_path']})"
+            )
     return 0
 
 
@@ -434,6 +460,8 @@ def _cmd_snapshot_create(args: argparse.Namespace) -> int:
         f"Created snapshot {layer['id']} "
         f"({layer['label'] or 'no label'}) on {args.domain}."
     )
+    if payload.get("active") and payload.get("active") != layer["id"]:
+        message += f" Current layer is {payload['active']}."
     ejected = payload.get("ejected") or []
     if ejected:
         message += f" Ejected CD/DVD: {', '.join(str(item) for item in ejected)}."
@@ -483,6 +511,7 @@ def _cmd_snapshot_list(args: argparse.Namespace) -> int:
         return 0
     columns = ["ID", "LABEL", "PARENT", "ACTIVE", "SIZE", "DESCRIPTION"]
     rows = []
+    model = int(payload.get("snapshot_model") or 1)
     for layer in payload.get("layers", []):
         size = int(layer.get("actual_size", 0)) / (1024 ** 2)
         description = (
@@ -490,10 +519,13 @@ def _cmd_snapshot_list(args: argparse.Namespace) -> int:
             .replace("\n", " ")
             .replace("\t", " ")
         )
+        label = str(layer.get("label", ""))
+        if model >= 2 and layer.get("active"):
+            label = "Current"
         rows.append(
             [
                 str(layer.get("id", "")),
-                str(layer.get("label", "")),
+                label,
                 str(layer.get("parent", "")),
                 "yes" if layer.get("active") else "no",
                 f"{size:.1f} MiB",
@@ -543,7 +575,10 @@ def _cmd_snapshot_revert(args: argparse.Namespace) -> int:
         payload = service.snapshots_revert(
             args.domain, args.layer, args.uri
         )
-    message = f"Active layer is now {payload.get('active')} on {args.domain}."
+    message = (
+        f"Reverted to snapshot {args.layer}; active layer is now "
+        f"{payload.get('active')} on {args.domain}."
+    )
     ejected = payload.get("ejected") or []
     if ejected:
         message += f" Ejected CD/DVD: {', '.join(str(item) for item in ejected)}."
@@ -1601,15 +1636,17 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
 def _cmd_revert(args: argparse.Namespace) -> int:
     service.require_chain_writable(args.chain, getattr(args, "uri", "qemu:///system"))
     if _daemon_enabled(args):
-        layer = _daemon_call(
+        payload = _daemon_call(
             args, "chain.revert", {"chain": args.chain, "layer": args.layer}
         )
     else:
-        layer = ChainManager(args.chain).revert(args.layer).to_dict()
+        manager = ChainManager(args.chain)
+        layer = manager.revert(args.layer)
+        payload = {**layer.to_dict(), "active": manager.info()["active"]}
     _emit(
-        {"active": layer["id"], "path": layer["path"]},
+        {"active": payload.get("active"), "path": payload.get("path")},
         args.json,
-        f"Active layer is now {layer['id']}.",
+        f"Active layer is now {payload.get('active')}.",
     )
     return 0
 
@@ -3087,18 +3124,21 @@ def build_parser() -> argparse.ArgumentParser:
     ssh_parser.set_defaults(func=_cmd_ssh)
 
     console_parser = sub.add_parser(
-        "console", help="Show or open a VM's VNC console."
+        "console", help="Show or open a VM's VNC or SPICE console."
     )
     console_parser.add_argument("domain")
     console_parser.add_argument(
         "--open",
         action="store_true",
-        help="Open with virt-viewer/remote-viewer, or virsh console for serial.",
+        help=(
+            "Open with TigerVNC vncviewer for VNC, remote-viewer for SPICE, "
+            "or virsh console for serial."
+        ),
     )
     console_parser.add_argument(
         "--serial",
         action="store_true",
-        help="Use the serial console instead of VNC.",
+        help="Use the serial console instead of VNC/SPICE.",
     )
     console_parser.add_argument("--uri", default="qemu:///system")
     console_parser.add_argument("--json", action="store_true")
@@ -3754,7 +3794,7 @@ def build_parser() -> argparse.ArgumentParser:
     storage_inspect = storage_sub.add_parser("inspect", help="Inspect a location.")
     storage_inspect.add_argument("--path", required=True)
     storage_inspect.add_argument(
-        "--role", choices=["labs", "templates", "isos"], default="labs"
+        "--role", choices=["labs", "templates", "isos", "images"], default="labs"
     )
     storage_inspect.add_argument("--json", action="store_true")
     storage_inspect.set_defaults(func=_cmd_storage_inspect)
@@ -3762,7 +3802,7 @@ def build_parser() -> argparse.ArgumentParser:
     storage_add = storage_sub.add_parser("add", help="Prepare and register a location.")
     storage_add.add_argument("--path", required=True)
     storage_add.add_argument(
-        "--role", choices=["labs", "templates", "isos"], default="labs"
+        "--role", choices=["labs", "templates", "isos", "images"], default="labs"
     )
     storage_add.add_argument("--config")
     storage_add.add_argument("--dry-run", action="store_true")
@@ -3772,7 +3812,7 @@ def build_parser() -> argparse.ArgumentParser:
     storage_repair = storage_sub.add_parser("repair", help="Repair a location.")
     storage_repair.add_argument("--path", required=True)
     storage_repair.add_argument(
-        "--role", choices=["labs", "templates", "isos"], default="labs"
+        "--role", choices=["labs", "templates", "isos", "images"], default="labs"
     )
     storage_repair.add_argument("--dry-run", action="store_true")
     storage_repair.add_argument(

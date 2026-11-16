@@ -11,7 +11,7 @@ console, no control plane, and no cluster to babysit. Templates, storage,
 networks, consoles and lab definitions live in one place, with a CLI for the
 same operations.
 
-> **Status:** 0.1.0 release. A thin `.run` installer is built from the same
+> **Status:** 0.2.0 release. A thin `.run` installer is built from the same
 > tag and published on GitHub Releases.
 
 ## Why v-EMU
@@ -73,6 +73,24 @@ of pretending to be a cloud.
 
 There is no TCG-only host mode; cross-architecture TCG is optional for guests.
 
+## Host coverage and feature parity
+
+| Capability | RHEL family | openSUSE | Debian/Ubuntu |
+|---|---|---|---|
+| Core v-EMU: lifecycle, snapshots, storage, networking, VNC | supported | supported | supported |
+| External TigerVNC console | supported* | supported* | supported* |
+| Image Builder (qcow2/ISO) | supported | unavailable | unavailable |
+| Arch family | experimental `contrib/setup-arch.sh`, core only | — | — |
+
+\* Install `tigervnc` (Fedora/RHEL/openSUSE) or `tigervnc-viewer`
+(Debian/Ubuntu); external mode stays disabled when `vncviewer` is missing.
+
+The host matrix covers all three Linux families for core vEMU. **Image Builder
+is intentionally limited to Fedora/RHEL-family hosts in 0.2.0**: Debian and
+openSUSE keep the full core feature set but the Image Builder page shows an
+unsupported-host banner and hides new builds. This is a documented feature gap,
+not a regression in VM lifecycle or console support.
+
 ## Install
 
 From source:
@@ -88,7 +106,7 @@ Run as your normal desktop user, not with `sudo`. `--full` adds optional
 aarch64/riscv64 TCG packages where the distribution provides them. After first
 install, reboot or log out/in so group membership applies.
 
-Or download `vemu-0.1.0-x86_64.run` from
+Or download `vemu-0.2.0-x86_64.run` from
 [GitHub Releases](https://github.com/withcoresystem/v-EMU/releases/latest),
 verify it with the adjacent `.sha256`, then run it. The `.run` uses the same
 setup logic and keeps its extracted source under `~/.local/share/vemu/source`;
@@ -113,44 +131,51 @@ Create lab storage and a NAT network from the first-run wizard, or from
 | Document | Contents |
 |---|---|
 | [`MANUAL.md`](MANUAL.md) | Install, daily use, adoption, networking, storage, security, CLI |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Implemented 0.1.0 design and trust boundaries |
+| [`BUILDER.md`](BUILDER.md) | Image Builder qcow2/ISO flow, blueprints, firstboot payloads |
+| [`docs/BUILDER-BRANDING.md`](docs/BUILDER-BRANDING.md) | Installer ISO branding and asset standards |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Implemented 0.2.0 process and trust boundaries |
 | [`GRAPHICS.md`](GRAPHICS.md) | Video models, sleep/resume and guest trade-offs |
 | [`docs/USER-GUIDE.md`](docs/USER-GUIDE.md) | Concise in-app guide |
+| [`docs/ARCH-EXPERIMENTAL.md`](docs/ARCH-EXPERIMENTAL.md) | Arch/CachyOS/Omarchy experimental core-only installer |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | Public `.run` build, clean-host test and GitHub release process |
-| [`docs/release-notes/v0.1.0.md`](docs/release-notes/v0.1.0.md) | Release notes for 0.1.0 |
+| [`docs/release-notes/v0.2.0.md`](docs/release-notes/v0.2.0.md) | Release notes for 0.2.0 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Issues, pull requests and scope |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability reporting and trust model |
 | [`DISCLAIMER.md`](DISCLAIMER.md) | Warranty, data/backup and liability terms |
 
+Experimental helpers live in the source tree: [`templates/`](templates/) has the
+full blueprint set, [`contrib/setup-arch.sh`](contrib/setup-arch.sh) installs the
+Arch-family core, and [`contrib/windows/README.md`](contrib/windows/README.md)
+documents the standalone Windows guest optimization helper. These are not part
+of the `.run` payload and are not supported features.
+
 ## Roadmap
 
-### 0.2.0 (planned)
+The roadmap is directional, not a release promise.
 
-0.2.0 is planned and **not implemented in this tree yet**; 0.1.0 remains the
-current release. The planned scope is intentionally narrow:
+### 0.3.0 (planned)
 
-1. **Bug fixes** — stability and regression fixes across the VM lifecycle,
-   display/sleep and video paths, USB/libvirt handling, and adoption/migration.
-   No new product surface beyond those fixes.
-2. **External VNC client for better memory usage** — an optional local VNC
-   workflow that lets users open a console in an external viewer instead of
-   keeping the embedded console stack in memory. v-EMU remains local-only; the
-   embedded console stays available.
-3. **OS image builder** — optional local image builds through the upstream
-   `image-builder` CLI using shareable native blueprints. Native support is
-   limited to Fedora/RHEL-family hosts with `image-builder` installed;
-   Debian/Ubuntu/SUSE hide the feature in 0.2.0. qcow2 is the primary artifact,
-   installer ISO secondary. v-EMU orchestrates the build and does not
-   distribute images or replace `image-builder`.
+- **Bug fixes and reliability** — regressions, host compatibility and
+  documentation fixes reported against 0.2.0.
+- **Windows guest seamless mode** — optional helper to prepare a Windows 10/11
+  Pro/Enterprise guest for RemoteApp and open individual applications as Linux
+  windows. The full desktop remains the fallback; QXL/VGA stays the default.
+  This is the only committed Windows guest graphics path for 0.3.0.
+- **Storage compaction** — merge or discard old snapshot layers and reclaim
+  disk space without recreating the VM.
 
-These items are directional and subject to change. Nothing in this section is
-part of the 0.1.0 release.
+**Windows 3D acceleration is not a 0.3.0 commitment.** It remains a private lab
+experiment; a post-0.2.0 driver spike will decide whether any preview is opened.
+It is not support for PCIe/VFIO passthrough or commercial vGPU.
+
+Image Builder host coverage is unchanged in 0.3.0: Fedora/RHEL-family only.
 
 ## Non-goals
 
 - multi-host cluster, scheduler, HA or live migration;
 - remote/web multi-user operation or a remote thick client;
-- 3D acceleration or GPU passthrough;
+- 3D acceleration as a supported feature, or GPU/PCIe passthrough; a Windows 3D
+  lab experiment may be evaluated separately but is not a release commitment;
 - macOS guests;
 - live snapshots (snapshots are offline, chain-based);
 - X11 guest clipboard/integration;

@@ -63,6 +63,10 @@ class QemuIdentityTests(unittest.TestCase):
         self.fedora_release.write_text(
             'ID=fedora\nID_LIKE=""\n', encoding="utf-8"
         )
+        self.arch_release = self.root / "arch-release"
+        self.arch_release.write_text(
+            'ID=cachyos\nID_LIKE=arch\n', encoding="utf-8"
+        )
         patcher = mock.patch.multiple(
             "vemu.qemuuser.pwd",
             getpwnam=_getpwnam,
@@ -99,6 +103,11 @@ class QemuIdentityTests(unittest.TestCase):
         identity = self._identity(release=self.fedora_release)
         self.assertEqual(identity.user, "qemu")
         self.assertEqual(identity.group, "qemu")
+
+    def test_arch_default_is_libvirt_qemu(self) -> None:
+        identity = self._identity(release=self.arch_release)
+        self.assertEqual(identity.user, "libvirt-qemu")
+        self.assertEqual(identity.group, "libvirt-qemu")
 
     def test_environment_override_wins(self) -> None:
         identity = self._identity(
@@ -149,6 +158,10 @@ class QemuIdentityTests(unittest.TestCase):
         self.assertEqual(
             _distro_candidates(self.fedora_release)[0],
             ("qemu", "qemu"),
+        )
+        self.assertEqual(
+            _distro_candidates(self.arch_release)[0],
+            ("libvirt-qemu", "libvirt-qemu"),
         )
 
 

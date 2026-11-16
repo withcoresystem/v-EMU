@@ -60,5 +60,41 @@ Out of scope for this project:
 - Lab defaults, including the documented Windows administrator password, are
   for disposable labs. Change them for any environment that matters.
 
-General warranty, data and liability terms are in
-[`DISCLAIMER.md`](DISCLAIMER.md).
+## Runtime network access
+
+v-EMU is local-only. There is no telemetry, analytics, update checker, remote
+API or long-lived outbound connection. `vemud` does not open a TCP listener:
+clients use a Unix socket, and VNC/noVNC plus the serial console bind to
+`127.0.0.1`.
+
+Internet access happens only while the user runs a specific action:
+
+| Action | Destination | Trigger | Duration | Data |
+|---|---|---|---|---|
+| OSBuild catalog | none | Open dialog / Refresh | Local command | `image-builder list` only |
+| Image Builder validate/preflight | Distro repositories (and declared extra repos) | Validate or Preflight | One `image-builder manifest` run | Repository metadata |
+| Image Builder build | Distro and extra repositories; RHEL entitlement when applicable | Build | While the build job runs | Repository metadata and packages |
+| Package/group lookup | Distro and extra repositories | Search, Load groups or Validate | One query, then cached | Repository metadata |
+| Firstboot URL payload | URL chosen by the user | First boot inside the installed guest | One-shot with retries | Setup payload or script |
+| Guest NAT | External network through the host | Guest traffic | Controlled by the guest | Guest data |
+| SSH / console | Guest address or `127.0.0.1` | User opens SSH or console | While the session is open | Console or SSH traffic |
+| `setup.sh` install/upgrade | Host distribution repositories | Install or upgrade | One-off | Host packages |
+
+Notes:
+
+- Image Builder and package lookup use the host proxy, DNS and RHEL
+  subscription configuration. v-EMU does not store or proxy those credentials.
+- Package lookup disables GPG checking for its read-only metadata queries, so
+  results are advisory. A real build still runs the full manifest preflight and
+  uses image-builder's repository policy.
+- `--extra-repo` entries given to image-builder are **not GPG-checked** by the
+  tool. Use only trusted repository URLs, and do not put credentials in a URL:
+  it can appear in the process command line and build log.
+- The SQLite cache is a local copy of repository metadata and query results. It
+  contains no build secrets and is safe to delete. Package data expires after
+  seven days; catalog, repository and group data after 90 days.
+- The firstboot URL is fetched by the installed guest at first boot, not by the
+  v-EMU host at ISO build time. USB payloads work offline.
+- For air-gapped use, build with local repository overrides
+  (`VEMU_IMAGE_BUILDER_REPO_DIR`/`--force-repo-dir`), use cached lookup data,
+  choose USB firstboot payloads, and attach guests to an isolated network.

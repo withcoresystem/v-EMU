@@ -17,7 +17,8 @@ virtualization. It is intentionally not a general-purpose hypervisor platform.
 
 Check:
 
-- the host is in the supported matrix (`MANUAL.md` → Support, versions and limits);
+- the host is in the supported matrix (see the feature-parity table in
+  `README.md`);
 - `vemu doctor` and `vemu doctor --json` output;
 - the latest `main` or latest release;
 - existing issues for the same problem.

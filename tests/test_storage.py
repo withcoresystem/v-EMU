@@ -29,12 +29,14 @@ class StorageTests(unittest.TestCase):
 
     def test_roles(self) -> None:
         self.assertEqual(validate_role("labs"), "labs")
+        self.assertEqual(validate_role("images"), "images")
         with self.assertRaises(ValidationError):
             validate_role("bogus")
 
     def test_expected_labels(self) -> None:
         self.assertEqual(expected_label("labs"), "virt_image_t")
         self.assertEqual(expected_label("templates"), "virt_image_t")
+        self.assertEqual(expected_label("images"), "virt_image_t")
         self.assertEqual(expected_label("isos"), "virt_content_t")
 
     def test_inspect_missing(self) -> None:
@@ -132,6 +134,36 @@ class StorageTests(unittest.TestCase):
             if action.description == "Set ownership"
         ]
         self.assertEqual(ownership, [["chown", "libvirt-qemu:kvm", location.path]])
+
+    def test_images_plan_fix_keeps_owner_and_adds_read_acl(self) -> None:
+        from unittest import mock
+
+        location = self._selinux_location()
+        location.role = "images"
+        location.owner = "user:user"
+        location.mode = "755"
+        location.qemu_traverse = False
+        location.qemu_read = False
+        location.qemu_write = False
+        identity = mock.Mock(user="qemu", group="qemu", owner="qemu:qemu")
+        with mock.patch(
+            "vemu.storage.qemu_identity", return_value=identity
+        ):
+            actions = plan_fix(location)
+        descriptions = [action.description for action in actions]
+        self.assertFalse(
+            any("ownership" in item.lower() for item in descriptions)
+        )
+        self.assertIn("Set directory mode", descriptions)
+        acl = next(
+            action
+            for action in actions
+            if action.description.startswith("Allow qemu to read")
+        )
+        self.assertEqual(
+            acl.command,
+            ["setfacl", "-m", "u:qemu:rx", location.path],
+        )
 
     def test_storage_repair_force_requires_selinux(self) -> None:
         from unittest import mock
@@ -366,3 +398,28 @@ class StorageFilesTests(unittest.TestCase):
                 service.storage_delete_file(
                     str(outside), config=str(self.config)
                 )
+
+    def test_service_deletes_images_job_directory(self) -> None:
+        from vemu import service
+
+        images = self.root / "images"
+        images.mkdir()
+        job = images / "vemu-fedora-gnome-qcow2-test"
+        job.mkdir()
+        (job / "disk.qcow2").write_bytes(b"qcow2")
+        (job / "build.log").write_text("log")
+        StorageStore(str(self.config)).add(images, "images")
+
+        service.storage_delete_file(str(job), config=str(self.config))
+        self.assertFalse(job.exists())
+
+        nested = images / "parent" / "child"
+        nested.mkdir(parents=True)
+        with self.assertRaises(Conflict):
+            service.storage_delete_file(
+                str(nested), config=str(self.config)
+            )
+        with self.assertRaises(Conflict):
+            service.storage_delete_file(
+                str(images), config=str(self.config)
+            )

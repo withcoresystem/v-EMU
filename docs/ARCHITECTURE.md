@@ -1,6 +1,6 @@
-# v-EMU architecture (0.1.0)
+# v-EMU architecture (0.2.0)
 
-This document describes the implemented v0.1.0 design. It is a maintenance
+This document describes the implemented v0.2.0 design. It is a maintenance
 reference, not a feature wish list. Items that were removed or are deliberately
 out of scope are listed at the end.
 
@@ -79,8 +79,11 @@ Socket: `/run/vemu/vemud.sock` (mode `0660`, owner `root:vemu`).
 5. Stops use libvirt ACPI shutdown; force-off uses `destroy`. The UI runs long
    actions in worker threads and calls `wait=False` for requests where
    appropriate.
-6. Snapshots are offline qcow2 layers. A revert plus a new snapshot creates a
-   branch; the UI shows the tree and active layer.
+6. Snapshots are offline qcow2 layers. Taking a snapshot freezes the active
+   layer and continues on a new current layer; reverting discards the current
+   layer and starts a new one on the target snapshot. Named snapshots that are
+   kept on another path form a branch; the UI shows the tree and current
+   layer.
 
 ## 4. Storage model
 
@@ -151,6 +154,15 @@ isos/       installer and driver images
 - `vemud` is the privileged trust boundary. It uses polkit for client
   authorization and a `vemu` group-restricted socket.
 - The daemon does not open a TCP listener. VNC/noVNC is loopback-only.
+- There is no telemetry, update checker or remote API. Outbound access happens
+  only during explicit Image Builder validate/build jobs and package/group
+  lookup queries; the OSBuild catalog itself is local.
+- Package lookup metadata is advisory and cached locally; builds still use the
+  full `image-builder manifest` preflight. Extra image-builder repositories are
+  not GPG-checked, so they are trusted input.
+- ISO firstboot URL payloads are fetched by the installed guest at first boot,
+  not by the v-EMU host during the ISO build. Guest NAT Internet access is a
+  guest data-plane choice; isolated profiles have no uplink.
 - External/read-only domains are never mutated by v-EMU.
 - XML drift baselines live under `/var/lib/vemu/baselines`.
 - Firmware artifacts are verified against SHA256SUMS; x86_64 Secure Boot is
@@ -164,7 +176,8 @@ These are product decisions, not missing implementation details:
 
 - no remote thick client, multi-host/cluster, HA or live migration;
 - no web UI or multi-user server mode;
-- no 3D acceleration, GPU passthrough, VirtGL or macOS guests;
+- no 3D acceleration or managed GPU passthrough (a domain with a manually
+  added hostdev is detected as read-only External), no VirtGL, no macOS;
 - no live snapshots; snapshots are offline and chain-based;
 - no X11 guest clipboard support;
 - no VNC clipboard as a guest clipboard peer;

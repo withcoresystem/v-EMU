@@ -142,7 +142,13 @@ class SnapshotsDialog(VemuDialog):
             ["ID", "NAME", "PARENT", "SIZE", "CREATED AT"]
         )
         self.table.setRootIsDecorated(True)
-        self.table.setIndentation(20)
+        # The tree column reserves one indentation step for the branch
+        # indicator plus one for the item text. Match that in the header so
+        # "ID"/"NAME" lines up with root-level rows.
+        self.table.setIndentation(12)
+        self.table.header().setStyleSheet(
+            "QHeaderView::section:first { padding-left: 24px; }"
+        )
         self.table.setUniformRowHeights(True)
         for column, alignment in enumerate(
             (
@@ -275,6 +281,13 @@ class SnapshotsDialog(VemuDialog):
                     f" Multi-disk chain ({count} disks); "
                     "snapshots apply to every disk."
                 )
+        if self._model() >= 2:
+            text += (
+                " Snapshots freeze the current layer; the VM continues on a "
+                "new current layer."
+            )
+        else:
+            text += " Legacy snapshot layout: labels follow the created layer."
         self.state_label.setText(text)
 
         self.table.clear()
@@ -293,10 +306,15 @@ class SnapshotsDialog(VemuDialog):
             layer_id = str(layer.get("id", ""))
             active = bool(layer.get("active"))
             size = layer.get("actual_size", 0) / (1024 * 1024)
+            label = str(layer.get("label", "") or "")
+            if self._model() >= 2 and active:
+                label = "Current"
+            elif not label:
+                label = "-"
             item = QTreeWidgetItem(
                 [
                     ("* " if active else "  ") + layer_id,
-                    str(layer.get("label", "") or "-"),
+                    label,
                     str(layer.get("parent", "")),
                     f"{size:.1f} MB",
                     _created_text(layer.get("created_at")),
@@ -406,13 +424,28 @@ class SnapshotsDialog(VemuDialog):
         self._set_actions(False)
         self._show_details()
 
+    def _model(self) -> int:
+        return int(self.info.get("snapshot_model") or 1)
+
+    def _is_current(self, layer_id: str | None) -> bool:
+        return (
+            self._model() >= 2
+            and layer_id is not None
+            and layer_id == self.info.get("active")
+        )
+
     def _selection_changed(self) -> None:
         running = bool(self.info.get("running"))
         selected = self._selected_layer() is not None
         managed = bool(self.info.get("managed"))
-        self.edit_button.setEnabled(selected and managed)
-        self.revert_button.setEnabled(selected and not running and managed)
-        self.delete_button.setEnabled(selected and not running and managed)
+        current = self._is_current(self._selected_layer())
+        self.edit_button.setEnabled(selected and managed and not current)
+        self.revert_button.setEnabled(
+            selected and not running and managed and not current
+        )
+        self.delete_button.setEnabled(
+            selected and not running and managed and not current
+        )
         self._show_details()
 
     def _set_actions(self, enabled: bool) -> None:
@@ -454,6 +487,12 @@ class SnapshotsDialog(VemuDialog):
         if layer is None:
             self.details_description.setPlainText("")
             return
+        if self._is_current(layer_id):
+            self.details_description.setPlainText(
+                "Current state. It is not a snapshot: create a snapshot to "
+                "preserve it, or revert to an existing snapshot to discard it."
+            )
+            return
         self.details_description.setPlainText(
             str(layer.get("description", "")) or "No description."
         )
@@ -473,9 +512,18 @@ class SnapshotsDialog(VemuDialog):
         create.setEnabled(self.create_button.isEnabled())
         menu.addSeparator()
         layer = self._selected_layer()
+        current = self._is_current(layer)
         edit = menu.addAction("Edit snapshot…", self._edit)
-        edit.setEnabled(layer is not None and bool(self.info.get("managed")))
-        can_modify = layer is not None and not bool(self.info.get("running"))
+        edit.setEnabled(
+            layer is not None
+            and bool(self.info.get("managed"))
+            and not current
+        )
+        can_modify = (
+            layer is not None
+            and not bool(self.info.get("running"))
+            and not current
+        )
         revert = menu.addAction("Revert", self._revert)
         revert.setEnabled(can_modify)
         delete = menu.addAction("Delete", self._delete)
@@ -504,6 +552,14 @@ class SnapshotsDialog(VemuDialog):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         label, description = dialog.values()
+        if self._model() >= 2 and not label:
+            QMessageBox.warning(
+                self,
+                "Snapshot name required",
+                "Give the snapshot a name so it can be identified in the "
+                "tree.",
+            )
+            return
         try:
             payload = self.backend.snapshots_create(
                 self.domain_name, label, description
@@ -568,10 +624,19 @@ class SnapshotsDialog(VemuDialog):
         layer = self._selected_layer()
         if layer is None:
             return
+        data = self.layers.get(layer, {})
+        label = str(data.get("label", "") or "").strip()
+        name = f"{label} ({layer})" if label else f"layer {layer}"
+        model = (
+            "The current layer and every change since this snapshot will be "
+            "discarded."
+            if self._model() >= 2
+            else "Changes after this snapshot will be lost."
+        )
         answer = QMessageBox.question(
             self,
             "Revert snapshot",
-            f"Revert to layer {layer}? Changes after this snapshot will be lost.\n\n"
+            f"Revert to {name}? {model}\n\n"
             "CD/DVD media will be ejected first.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -592,11 +657,25 @@ class SnapshotsDialog(VemuDialog):
         if layer is None:
             return
         is_active = layer == self.info.get("active")
-        extra = " This is the active layer; current state will be discarded." if is_active else ""
+        data = self.layers.get(layer, {})
+        label = str(data.get("label", "") or "").strip()
+        name = f"{label} ({layer})" if label else f"layer {layer}"
+        if self._model() >= 2:
+            question = (
+                f"Delete snapshot {name}? The current state is kept; this "
+                "only removes the rollback point."
+            )
+        else:
+            extra = (
+                " This is the active layer; current state will be discarded."
+                if is_active
+                else ""
+            )
+            question = f"Delete layer {layer}?{extra}"
         answer = QMessageBox.question(
             self,
             "Delete snapshot",
-            f"Delete layer {layer}?{extra}",
+            question,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

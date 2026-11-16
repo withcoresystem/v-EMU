@@ -44,6 +44,8 @@ from PySide6.QtWidgets import (
 from ..backend import DomainInfo, LibvirtBackend
 from ..client import DaemonClient, socket_available
 from ..errors import VemuError
+from ..external_spice import SpiceViewerManager
+from ..external_vnc import ViewerManager
 from . import configure_display_environment as _configure_display_environment
 from . import configure_webengine_environment as _configure_webengine_environment
 from . import strings as s
@@ -57,6 +59,7 @@ from .guide import GuidePage
 from .help import ContextHelpDialog
 from .host_metrics import HostMetrics, format_metrics
 from .icons import DEFAULT_SIZE, make_icon
+from .image_builder_page import ImageBuilderPage
 from .labs_page import LabsPage
 from .network_map import NetworkMapDialog
 from .network_page import NetworkPage
@@ -77,6 +80,18 @@ from .tooltips import (
     tip,
 )
 from .widgets import EmptyStateTable
+
+
+def _read_only_reason(domain: DomainInfo) -> str:
+    """Explain why a VM is read-only, including the VFIO passthrough case."""
+    if getattr(domain, "passthrough", False):
+        detail = domain.passthrough_detail or "host device"
+        return (
+            f"This VM uses host passthrough ({detail}); v-EMU keeps it "
+            "read-only. Remove the hostdev from the libvirt XML "
+            "(for example with `virsh edit`) to manage it here."
+        )
+    return "This VM is external/read-only. Adopt it into v-EMU first."
 
 
 _STATE_SORT = {
@@ -105,6 +120,7 @@ _OS_SORT = {
 _NAV_ICONS = {
     "Labs": "labs",
     "Templates": "templates",
+    "Image Builder": "image-builder",
     "Virtual machines": "vms",
     "Networks": "network",
     "Storage": "storage",
@@ -117,12 +133,13 @@ _NAV_ICONS = {
 _NAV_SHORTCUTS = {
     "Labs": "Ctrl+1",
     "Templates": "Ctrl+2",
-    "Virtual machines": "Ctrl+3",
-    "Networks": "Ctrl+4",
-    "Storage": "Ctrl+5",
-    "Shared folders": "Ctrl+6",
-    "Guide": "Ctrl+7",
-    "Doctor": "Ctrl+8",
+    "Image Builder": "Ctrl+3",
+    "Virtual machines": "Ctrl+4",
+    "Networks": "Ctrl+5",
+    "Storage": "Ctrl+6",
+    "Shared folders": "Ctrl+7",
+    "Guide": "Ctrl+8",
+    "Doctor": "Ctrl+9",
     "Settings": "Ctrl+,",
 }
 
@@ -176,6 +193,10 @@ class DaemonBackend:
                 firmware=str(item.get("firmware", "bios")),
                 managed_by=str(item.get("managed_by", "External")),
                 os_type=str(item.get("os_type", "generic")),
+                passthrough=bool(item.get("passthrough", False)),
+                passthrough_detail=str(
+                    item.get("passthrough_detail", "") or ""
+                ),
             )
             for item in data
         ]
@@ -932,6 +953,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(s.APP_NAME)
         self.resize(1280, 720)
         self.setMinimumSize(1280, 720)
+        self.start_maximized = False
 
         root = QWidget()
         root_layout = QVBoxLayout(root)
@@ -969,6 +991,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
         self._settings = QSettings("v-EMU", "v-EMU")
+        self._restore_window_size()
         self.ui_sidebar_visible = self._settings.value(
             "ui/sidebar", True, type=bool
         )
@@ -980,6 +1003,13 @@ class MainWindow(QMainWindow):
         )
         if os.environ.get("VEMU_DISABLE_MINI_CONSOLE") == "1":
             self.mini_console_enabled = False
+        self.console_mode = str(
+            self._settings.value("ui/console_mode", "embedded")
+        )
+        if self.console_mode not in {"embedded", "external"}:
+            self.console_mode = "embedded"
+        self.external_viewers = ViewerManager()
+        self.spice_viewers = SpiceViewerManager()
         self.auto_refresh_enabled = self._settings.value(
             "ui/auto_refresh", True, type=bool
         )
@@ -1098,6 +1128,7 @@ class MainWindow(QMainWindow):
         for label, coming in (
             (s.NAV_LABS, False),
             (s.NAV_TEMPLATES, False),
+            (s.NAV_IMAGE_BUILDER, False),
             (s.NAV_VMS, False),
             (s.NAV_NETWORKS, False),
             (s.NAV_STORAGE, False),
@@ -1301,6 +1332,18 @@ class MainWindow(QMainWindow):
             lambda message: self.statusBar().showMessage(message, 4000)
         )
         self.templates_page.vms_changed.connect(self.refresh)
+        self.image_builder_page = ImageBuilderPage(
+            self.backend,
+            dark=self.dark,
+            parent=self,
+            templates_page=self.templates_page,
+        )
+        self.image_builder_page.status.connect(
+            lambda message: self.statusBar().showMessage(message, 4000)
+        )
+        self.image_builder_page.template_imported.connect(
+            self._image_template_imported
+        )
         self.guide_page = GuidePage(self, dark=self.dark)
         self.doctor_page = DoctorPage(self.backend, self)
         self.doctor_page.status.connect(
@@ -1316,6 +1359,9 @@ class MainWindow(QMainWindow):
         )
         self.settings_page.mini_console_changed.connect(
             self._set_mini_console_enabled
+        )
+        self.settings_page.console_mode_changed.connect(
+            self._set_console_mode
         )
         self.settings_page.auto_refresh_changed.connect(
             self._set_auto_refresh
@@ -1338,6 +1384,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.vms_page)
         self.stack.addWidget(self.labs_page)
         self.stack.addWidget(self.templates_page)
+        self.stack.addWidget(self.image_builder_page)
         self.stack.addWidget(self.network_page)
         self.stack.addWidget(self.storage_page)
         self.stack.addWidget(self.shares_page)
@@ -1474,7 +1521,12 @@ class MainWindow(QMainWindow):
                 domain.name.lower(),
             )
             disks_key = (len(domain.disks), domain.name.lower())
-            managed_key = (domain.managed_by.lower(), domain.name.lower())
+            managed_label = (
+                "External (VFIO)"
+                if domain.passthrough
+                else domain.managed_by
+            )
+            managed_key = (managed_label.lower(), domain.name.lower())
             name_item = _SortItem(domain.name, name_key)
             os_item = _SortItem(_OS_LABELS[os_type], os_key)
             os_tokens = self._tokens()
@@ -1487,7 +1539,7 @@ class MainWindow(QMainWindow):
             )
             os_item.setToolTip("Guest OS type")
             state_item = _SortItem(domain.state.capitalize(), state_key)
-            managed_text = domain.managed_by
+            managed_text = managed_label
             if domain.drift == "drifted":
                 managed_text += " · drift"
             managed_item = _SortItem(managed_text, managed_key)
@@ -1509,7 +1561,21 @@ class MainWindow(QMainWindow):
                 autostart_item.setForeground(
                     QColor(LIGHT.muted if not self.dark else DARK.muted)
                 )
-            if domain.drift == "drifted":
+            if domain.passthrough:
+                detail = domain.passthrough_detail or "host device"
+                managed_item.setToolTip(
+                    compact_tooltip(
+                        f"Host passthrough ({detail}). v-EMU keeps this VM "
+                        "read-only; remove the hostdev from the libvirt XML "
+                        "to manage it here."
+                    )
+                )
+                managed_item.setForeground(
+                    QColor(
+                        LIGHT.warning if not self.dark else DARK.warning
+                    )
+                )
+            elif domain.drift == "drifted":
                 managed_item.setToolTip(
                     compact_tooltip(
                         "Domain XML changed outside v-EMU; baseline drift "
@@ -1678,6 +1744,7 @@ class MainWindow(QMainWindow):
         self.table.refresh_empty_state(visible)
 
     def _selection_changed(self) -> None:
+        on_vms_page = self.stack.currentWidget() is self.vms_page
         rows = self.table.selectionModel().selectedRows()
         if not rows:
             self.selected_domain = None
@@ -1685,7 +1752,8 @@ class MainWindow(QMainWindow):
             self.inspector_body.setText(s.INSPECTOR_SELECT)
             self.inspector_stats.hide()
             self._guest_sample = None
-            self.statusBar().showMessage("Ready")
+            if on_vms_page:
+                self.statusBar().showMessage("Ready")
             self._schedule_mini_console()
             return
         row = rows[0].row()
@@ -1713,9 +1781,11 @@ class MainWindow(QMainWindow):
                 "XML drift detected outside v-EMU</span>"
             )
         self.inspector_body.setText(inspector)
-        self.statusBar().showMessage(
-            f"{domain.name} · {domain.state} · {len(domain.disks)} disk(s)"
-        )
+        if on_vms_page:
+            self.statusBar().showMessage(
+                f"{domain.name} · {domain.state} · "
+                f"{len(domain.disks)} disk(s)"
+            )
         self._guest_sample = None
         self._refresh_guest_stats()
         self._schedule_mini_console()
@@ -1914,6 +1984,12 @@ class MainWindow(QMainWindow):
         except VemuError as exc:
             QMessageBox.critical(self, "Console unavailable", str(exc))
             return
+        if info.get("kind") == "spice":
+            self._open_spice_console(name, info)
+            return
+        if self.console_mode == "external":
+            self._open_external_console(name, info)
+            return
         window = self.console_windows.get(name)
         if window is None:
             from .console import ConsoleWindow
@@ -1932,6 +2008,46 @@ class MainWindow(QMainWindow):
 
     def _console_closed(self, name: str) -> None:
         self.console_windows.pop(name, None)
+
+    def _open_external_console(
+        self, name: str, info: dict[str, object]
+    ) -> None:
+        try:
+            handle = self.external_viewers.launch(name, info)
+        except VemuError as exc:
+            QMessageBox.warning(self, "External TigerVNC", str(exc))
+            return
+        self.statusBar().showMessage(
+            f"Opened TigerVNC for {name} · log: {handle.log_path}",
+            6000,
+        )
+
+    def _open_spice_console(
+        self, name: str, info: dict[str, object]
+    ) -> None:
+        try:
+            handle = self.spice_viewers.launch(name, info)
+        except VemuError as exc:
+            QMessageBox.warning(self, "SPICE console", str(exc))
+            return
+        self.statusBar().showMessage(
+            f"Opened remote-viewer for {name} · log: {handle.log_path}",
+            6000,
+        )
+
+    def _set_console_mode(self, mode: str) -> None:
+        if mode not in {"embedded", "external"}:
+            mode = "embedded"
+        self.console_mode = mode
+        self._settings.setValue("ui/console_mode", mode)
+        if hasattr(self, "settings_page"):
+            self.settings_page.set_console_mode(mode)
+        label = (
+            "External TigerVNC"
+            if mode == "external"
+            else "Embedded noVNC"
+        )
+        self.statusBar().showMessage(f"Console viewer: {label}", 4000)
 
     def _blocked_external(self) -> bool:
         domain = self.selected_domain
@@ -2374,9 +2490,7 @@ class MainWindow(QMainWindow):
             and hasattr(self.backend, "seal")
         )
         if read_only:
-            read_only_tip = (
-                "This VM is external/read-only. Adopt it into v-EMU first."
-            )
+            read_only_tip = _read_only_reason(domain)
         else:
             read_only_tip = "Seal the selected VM as a template."
         self.seal_button.setToolTip(
@@ -2403,8 +2517,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Read-only VM",
-                "This VM is external/read-only. Adopt it into v-EMU before "
-                "changing its state.",
+                _read_only_reason(domain),
             )
             return
         self._run_action(
@@ -2421,8 +2534,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Read-only VM",
-                "This VM is external/read-only. Adopt it into v-EMU before "
-                "changing its state or configuration.",
+                _read_only_reason(domain),
             )
             return
         self._run_action(
@@ -2439,8 +2551,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Read-only VM",
-                "This VM is external/read-only. Adopt it into v-EMU before "
-                "changing its state or configuration.",
+                _read_only_reason(domain),
             )
             return
         self._run_action(
@@ -2458,8 +2569,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Read-only VM",
-                "This VM is external/read-only. Adopt it into v-EMU before "
-                "changing its state or configuration.",
+                _read_only_reason(domain),
             )
             return
         answer = QMessageBox.question(
@@ -2485,8 +2595,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Read-only VM",
-                "This VM is external/read-only. Adopt it into v-EMU before "
-                "changing its state or configuration.",
+                _read_only_reason(domain),
             )
             return
         self._run_action(
@@ -2498,6 +2607,13 @@ class MainWindow(QMainWindow):
     def _migrate_selected(self) -> None:
         domain = self.selected_domain
         if domain is None:
+            return
+        if domain.passthrough:
+            QMessageBox.information(
+                self,
+                "Read-only VM",
+                _read_only_reason(domain),
+            )
             return
         if domain.managed_by == "v-EMU (full)":
             return
@@ -2938,6 +3054,8 @@ class MainWindow(QMainWindow):
             self.doctor_page.set_theme(dark)
         if hasattr(self, "settings_page"):
             self.settings_page.set_theme(dark)
+        if hasattr(self, "image_builder_page"):
+            self.image_builder_page.set_theme(dark)
 
     def _set_theme(self, dark: bool) -> None:
         if dark == self.dark:
@@ -3080,6 +3198,9 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+K"), self).activated.connect(
             self._open_cli_console
         )
+        quit_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
+        quit_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        quit_shortcut.activated.connect(self.close)
         QShortcut(QKeySequence("F1"), self).activated.connect(
             self._show_context_help
         )
@@ -3096,6 +3217,8 @@ class MainWindow(QMainWindow):
             self._new_vm()
         elif page is self.templates_page:
             self.templates_page._import()
+        elif page is self.image_builder_page:
+            self.image_builder_page.new_build()
         elif page is self.network_page:
             self.network_page._add()
         elif page is self.storage_page:
@@ -3320,6 +3443,12 @@ class MainWindow(QMainWindow):
             8000,
         )
 
+    def _image_template_imported(self, name: str) -> None:
+        self._open_templates()
+        self.statusBar().showMessage(
+            f"Template {name} imported; clone it from Templates.", 6000
+        )
+
     def _open_templates(self) -> None:
         for nav in self._nav_buttons:
             if nav.text() == s.NAV_TEMPLATES:
@@ -3347,6 +3476,15 @@ class MainWindow(QMainWindow):
             self.templates_page.refresh()
             self.statusBar().showMessage(
                 f"Templates · {len(self.templates_page.templates)} template(s)"
+            )
+        elif label == s.NAV_IMAGE_BUILDER:
+            self.stack.setCurrentWidget(self.image_builder_page)
+            self.inspector.hide()
+            self.image_builder_page.refresh()
+            self.statusBar().showMessage(
+                f"Image Builder · {len(self.image_builder_page.images)} "
+                f"image(s) · {len(self.image_builder_page.blueprints)} "
+                f"blueprint(s)"
             )
         elif label == s.NAV_STORAGE:
             self.stack.setCurrentWidget(self.storage_page)
@@ -3385,6 +3523,7 @@ class MainWindow(QMainWindow):
                 self.ui_sidebar_visible, self.ui_inspector_visible
             )
             self.settings_page.set_mini_console(self.mini_console_enabled)
+            self.settings_page.set_console_mode(self.console_mode)
             self.settings_page.set_auto_refresh(
                 self.auto_refresh_enabled, self.auto_refresh_interval
             )
@@ -3438,7 +3577,60 @@ class MainWindow(QMainWindow):
     def _set_kpi(self, label: QLabel, value: str) -> None:
         label.setText(value)
 
+    def _restore_window_size(self) -> None:
+        """Restore a saved user size, never below the 1280x720 minimum."""
+        width = self._settings.value("ui/window_width", 0, type=int)
+        height = self._settings.value("ui/window_height", 0, type=int)
+        try:
+            width = int(width)
+            height = int(height)
+        except (TypeError, ValueError):
+            width = height = 0
+        if width >= 1280 and height >= 720:
+            self.resize(width, height)
+        self.start_maximized = self._settings.value(
+            "ui/window_maximized", False, type=bool
+        )
+
+    def _save_window_size(self) -> None:
+        """Persist the normal size and maximized state for the next launch."""
+        self._settings.setValue(
+            "ui/window_maximized", self.isMaximized()
+        )
+        geometry = (
+            self.normalGeometry().size()
+            if self.isMaximized()
+            else self.size()
+        )
+        self._settings.setValue("ui/window_width", geometry.width())
+        self._settings.setValue("ui/window_height", geometry.height())
+
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        page = getattr(self, "image_builder_page", None)
+        running = page.running_jobs() if page is not None else []
+        if running:
+            choice = ConfirmDialog(
+                self,
+                title="Build in progress",
+                heading=(
+                    f"{len(running)} image build"
+                    f"{'s are' if len(running) != 1 else ' is'} still running."
+                ),
+                body=(
+                    "Closing v-EMU cancels the build. The log and partial "
+                    "artifacts are kept, but the build will not continue in "
+                    "the background."
+                ),
+                actions=(
+                    ("Keep v-EMU open", 0, "SecondaryButton"),
+                    ("Cancel build and quit", 1, "DangerButton"),
+                ),
+                default_index=0,
+            ).exec()
+            if choice != 1:
+                event.ignore()
+                return
+        self._save_window_size()
         self._shutting_down = True
         self._mini_timer.stop()
         self._metrics_timer.stop()
@@ -3455,6 +3647,13 @@ class MainWindow(QMainWindow):
         for window in list(self.console_windows.values()):
             window.shutdown()
         self.console_windows.clear()
+        if hasattr(self, "image_builder_page"):
+            self.image_builder_page.shutdown()
+        # VemuDialog windows are independent top-levels, so closing the main
+        # window does not close an open Network map/CLI/snapshot dialog.
+        for widget in QApplication.topLevelWidgets():
+            if widget is not self and widget.isVisible():
+                widget.close()
         self.backend.close()
         super().closeEvent(event)
 
@@ -3495,8 +3694,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Disable the noVNC inspector preview for this run.",
     )
     parser.add_argument("--screenshot", help="Render the window to a PNG and exit.")
-    parser.add_argument("--width", type=int, default=1280)
-    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Window width; defaults to the last saved size or 1280.",
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        default=None,
+        help="Window height; defaults to the last saved size or 720.",
+    )
     parser.add_argument(
         "--allow-multiple",
         action="store_true",
@@ -3580,7 +3789,12 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(backend, dark=dark, uri=args.uri)
     if args.no_mini_console:
         window.mini_console_enabled = False
-    window.resize(args.width, args.height)
+    if args.width is not None or args.height is not None:
+        window.resize(
+            args.width if args.width is not None else window.width(),
+            args.height if args.height is not None else window.height(),
+        )
+        window.start_maximized = False
     window.center_on_screen()
     logging.info(
         "ui start: log=%s daemon=%s theme=%s socket=%s",
@@ -3590,6 +3804,8 @@ def main(argv: list[str] | None = None) -> int:
         socket_path,
     )
     window.show()
+    if window.start_maximized:
+        window.showMaximized()
 
     if guard is not None:
         def _raise_existing() -> None:

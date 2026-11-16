@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -34,6 +35,7 @@ from .dialogs import VemuDialog, dialog_layout
 from .tooltips import set_tooltip
 from .widgets import ComboBox, EmptyStateTable
 from .components import form_layout, PageHeader
+from .page_tabs import PageTabs
 
 
 def _size_text(value: int) -> str:
@@ -50,7 +52,15 @@ def _security_text(template: dict[str, Any]) -> str:
 
 
 class TemplateImportDialog(VemuDialog):
-    def __init__(self, backend, root: str, parent=None) -> None:
+    def __init__(
+        self,
+        backend,
+        root: str,
+        parent=None,
+        *,
+        source: str = "",
+        name: str = "",
+    ) -> None:
         super().__init__(parent)
         self.backend = backend
         self.root = root
@@ -82,7 +92,7 @@ class TemplateImportDialog(VemuDialog):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(12)
         form = form_layout()
-        self.source_edit = QLineEdit()
+        self.source_edit = QLineEdit(source)
         source_row = QHBoxLayout()
         source_row.addWidget(self.source_edit, 1)
         browse = QPushButton("Browse…")
@@ -91,7 +101,7 @@ class TemplateImportDialog(VemuDialog):
         source_row.addWidget(browse)
         form.addRow("Source qcow2", source_row)
 
-        self.name_edit = QLineEdit()
+        self.name_edit = QLineEdit(name)
         form.addRow("Template name", self.name_edit)
         self.description_edit = QLineEdit()
         form.addRow("Description", self.description_edit)
@@ -185,6 +195,14 @@ class TemplateImportDialog(VemuDialog):
             self.video_combo.currentText() in {"vga", "qxl"}
         )
 
+    def _cloud_init_toggled(self, checked: bool) -> None:
+        if self.os_family != "linux":
+            return
+        self.identity_check.setEnabled(not checked)
+        if checked:
+            self.identity_check.setChecked(False)
+        self.ci_fields.setVisible(checked)
+
     def _browse(self) -> None:
         path, _filter = QFileDialog.getOpenFileName(
             self, "Choose qcow2", "/home/ISO", "QEMU images (*.qcow2 *.img)"
@@ -254,22 +272,15 @@ class TemplateCloneDialog(VemuDialog):
         self.template_root = template_root
         self.labs_root = labs_root
         self.created: list[dict[str, Any]] = []
+        self._networks = networks
         self.setWindowTitle(f"Clone template · {template['name']}")
-        self.resize(620, 660)
-        self.setMinimumSize(560, 500)
+        self.resize(640, 580)
+        self.setMinimumSize(560, 480)
 
         layout = dialog_layout(self)
         title = QLabel(f"Clone {template['name']}")
         title.setObjectName("DialogTitle")
         layout.addWidget(title)
-        helper = QLabel(
-            "Linked clones share the template base. Linux clones can receive "
-            "a cloud-init seed. Windows OOBE USB is optional and only needed "
-            "for the Server 2025 unattended/sysprepped flow."
-        )
-        helper.setObjectName("Muted")
-        helper.setWordWrap(True)
-        layout.addWidget(helper)
 
         self.os_family = str(template.get("os_family") or "")
         self.inferred_os_family = False
@@ -278,17 +289,44 @@ class TemplateCloneDialog(VemuDialog):
                 "windows" if template.get("sysprepped") else "linux"
             )
             self.inferred_os_family = True
+
+        header = QHBoxLayout()
         self.os_label = QLabel(
             f"Guest OS: {self.os_family.capitalize()}"
-            + (" (inferred from legacy metadata)" if self.inferred_os_family else "")
+            if not self.inferred_os_family
+            else "Guest OS: inferred from legacy sysprep metadata"
         )
         self.os_label.setObjectName(
             "Warning" if self.inferred_os_family else "Muted"
         )
-        layout.addWidget(self.os_label)
+        header.addWidget(self.os_label)
+        header.addStretch(1)
         self.security_label = QLabel(_security_text(template))
         self.security_label.setObjectName("Muted")
-        layout.addWidget(self.security_label)
+        header.addWidget(self.security_label)
+        layout.addLayout(header)
+
+        if self.os_family == "linux":
+            helper_text = (
+                "Linked clones only create a small overlay on the template "
+                "base. Identity reset runs offline and adds 15-30 seconds."
+            )
+        elif template.get("sysprepped"):
+            helper_text = (
+                "Linked clones only create a small overlay. The Windows tab "
+                "adds the optional OOBE answer for this sysprepped template."
+            )
+        else:
+            helper_text = (
+                "Linked clones only create a small overlay. This Windows "
+                "template is not sysprepped, so no clone-time OOBE answer is "
+                "available."
+            )
+        helper = QLabel(helper_text)
+        helper.setObjectName("Muted")
+        helper.setWordWrap(True)
+        layout.addWidget(helper)
+
         if self.inferred_os_family:
             self.legacy_warning = QLabel(
                 "This template has no OS family. Set Linux or Windows from "
@@ -309,98 +347,38 @@ class TemplateCloneDialog(VemuDialog):
             tpm_warning.setWordWrap(True)
             layout.addWidget(tpm_warning)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(12)
-        form = form_layout()
-        self.count_edit = QLineEdit("1")
-        form.addRow("Count", self.count_edit)
-        self.name_edit = QLineEdit(
-            f"{template['name']}-" + "{{n}}"
-        )
-        form.addRow("Name pattern", self.name_edit)
-        self.dest_edit = QLineEdit(labs_root)
-        dest_row = QHBoxLayout()
-        dest_row.addWidget(self.dest_edit, 1)
-        browse = QPushButton("Browse…")
-        browse.setObjectName("SecondaryButton")
-        browse.clicked.connect(self._browse)
-        dest_row.addWidget(browse)
-        form.addRow("Destination", dest_row)
+        self.general_page = self._scroll_page(self._build_general_page())
+        self.linux_page = self._scroll_page(self._build_linux_page())
+        self.windows_page = self._scroll_page(self._build_windows_page())
 
-        self.network_combo = ComboBox()
-        for profile in networks:
-            self.network_combo.addItem(
-                f"{profile['name']} ({profile.get('mode', '')})",
-                profile["name"],
-            )
-        if not networks:
-            self.network_combo.addItem(
-                "No network profiles — create one under Networks", None
-            )
-        form.addRow("Network", self.network_combo)
+        labels = ["General"]
+        pages = [self.general_page]
+        if self.os_family == "linux":
+            labels.append("Linux")
+            pages.append(self.linux_page)
+        elif bool(template.get("sysprepped")):
+            labels.append("Windows")
+            pages.append(self.windows_page)
 
-        self.memory_edit = QLineEdit(str(template.get("memory_mib", 2048)))
-        form.addRow("Memory (MiB)", self.memory_edit)
-        self.vcpu_edit = QLineEdit(str(template.get("vcpus", 2)))
-        form.addRow("vCPUs", self.vcpu_edit)
-        self.start_check = QCheckBox("Start clones after creation")
-        self.start_check.setChecked(True)
-        form.addRow("", self.start_check)
-
-        self.cloud_init_check = QCheckBox(
-            "Attach cloud-init seed (Linux, NoCloud)"
-        )
+        self.identity_check.setChecked(self.os_family == "linux")
+        self.identity_check.setEnabled(self.os_family == "linux")
         self.cloud_init_check.setEnabled(self.os_family == "linux")
-        form.addRow("", self.cloud_init_check)
-        self.ci_user_edit = QLineEdit("lab")
-        form.addRow("cloud-init user", self.ci_user_edit)
-        self.ci_key_edit = QLineEdit()
-        key_row = QHBoxLayout()
-        key_row.addWidget(self.ci_key_edit, 1)
-        key_browse = QPushButton("Browse…")
-        key_browse.setObjectName("SecondaryButton")
-        key_browse.clicked.connect(self._browse_key)
-        key_row.addWidget(key_browse)
-        form.addRow("SSH public key", key_row)
-        self.ci_packages_edit = QLineEdit()
-        self.ci_packages_edit.setPlaceholderText("vim, tcpdump")
-        form.addRow("Packages", self.ci_packages_edit)
-        self.ci_ip_edit = QLineEdit()
-        self.ci_ip_edit.setPlaceholderText("optional, e.g. 192.168.50.11/24")
-        form.addRow("Static IP", self.ci_ip_edit)
-        self.ci_gateway_edit = QLineEdit()
-        form.addRow("Gateway", self.ci_gateway_edit)
-
-        self.windows_oobe_check = QCheckBox(
-            "Attach Windows OOBE answer USB (sysprepped image)"
-        )
         self.windows_oobe_check.setEnabled(
             self.os_family == "windows" and bool(template.get("sysprepped"))
         )
-        set_tooltip(
-            self.windows_oobe_check,
-            "Enable only for the v-EMU Server 2025 unattended/OOBE clone flow.",
-        )
-        self.windows_oobe_check.toggled.connect(self._windows_oobe_toggled)
-        form.addRow("", self.windows_oobe_check)
-        self.windows_password_edit = QLineEdit("Vemu!Lab2026")
-        self.windows_password_edit.setPlaceholderText(
-            "8+ characters; used only when OOBE answer is attached"
-        )
-        self.windows_password_edit.setEnabled(False)
-        form.addRow("Windows OOBE password", self.windows_password_edit)
-        content_layout.addLayout(form)
-        content_layout.addStretch(1)
-        scroll.setWidget(content)
-        layout.addWidget(scroll, 1)
+        self.ci_fields.setVisible(False)
+
+        self.stack = QStackedWidget()
+        for page in pages:
+            self.stack.addWidget(page)
+        self.tabs = PageTabs(labels)
+        self.tabs.currentChanged.connect(self.stack.setCurrentIndex)
+        self.tabs.setCurrentIndex(0)
+        self.stack.setCurrentIndex(0)
+        layout.addWidget(self.tabs, 0, Qt.AlignmentFlag.AlignLeft)
+        if len(pages) == 1:
+            self.tabs.hide()
+        layout.addWidget(self.stack, 1)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -413,6 +391,177 @@ class TemplateCloneDialog(VemuDialog):
         self.clone_button.clicked.connect(self._clone)
         buttons.addWidget(self.clone_button)
         layout.addLayout(buttons)
+
+    # ------------------------------------------------------------------ pages
+
+    @staticmethod
+    def _scroll_page(page: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        scroll.setWidget(page)
+        return scroll
+
+    def _build_general_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        form = form_layout()
+        self.count_edit = QLineEdit("1")
+        form.addRow("Count", self.count_edit)
+        self.name_edit = QLineEdit(f"{self.template['name']}-" + "{{n}}")
+        form.addRow("Name pattern", self.name_edit)
+        self.dest_edit = QLineEdit(self.labs_root)
+        dest_row = QHBoxLayout()
+        dest_row.addWidget(self.dest_edit, 1)
+        browse = QPushButton("Browse…")
+        browse.setObjectName("SecondaryButton")
+        browse.clicked.connect(self._browse)
+        dest_row.addWidget(browse)
+        form.addRow("Destination", dest_row)
+
+        self.network_combo = ComboBox()
+        for profile in self._networks:
+            self.network_combo.addItem(
+                f"{profile['name']} ({profile.get('mode', '')})",
+                profile["name"],
+            )
+        if not self._networks:
+            self.network_combo.addItem(
+                "No network profiles — create one under Networks", None
+            )
+        form.addRow("Network", self.network_combo)
+
+        self.memory_edit = QLineEdit(str(self.template.get("memory_mib", 2048)))
+        form.addRow("Memory (MiB)", self.memory_edit)
+        self.vcpu_edit = QLineEdit(str(self.template.get("vcpus", 2)))
+        form.addRow("vCPUs", self.vcpu_edit)
+        self.start_check = QCheckBox("Start clones after creation")
+        self.start_check.setChecked(True)
+        form.addRow("", self.start_check)
+        layout.addLayout(form)
+        layout.addStretch(1)
+        return page
+
+    def _build_linux_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        identity_title = QLabel("Identity")
+        identity_title.setObjectName("SectionLabel")
+        layout.addWidget(identity_title)
+        self.identity_check = QCheckBox(
+            "Reset hostname, machine-id and SSH host keys (offline)"
+        )
+        set_tooltip(
+            self.identity_check,
+            "Runs virt-customize in a libguestfs appliance after the overlay "
+            "is created. The overlay itself is near-instant; this step adds "
+            "roughly 15-30 seconds. Disable it when cloud-init or another "
+            "mechanism owns the clone identity.",
+        )
+        layout.addWidget(self.identity_check)
+        identity_hint = QLabel(
+            "Disable when cloud-init or another mechanism owns the identity."
+        )
+        identity_hint.setObjectName("Muted")
+        identity_hint.setWordWrap(True)
+        layout.addWidget(identity_hint)
+
+        cloud_title = QLabel("Cloud-init")
+        cloud_title.setObjectName("SectionLabel")
+        layout.addWidget(cloud_title)
+        self.cloud_init_check = QCheckBox(
+            "Attach cloud-init seed (Linux, NoCloud)"
+        )
+        self.cloud_init_check.toggled.connect(self._cloud_init_toggled)
+        layout.addWidget(self.cloud_init_check)
+
+        self.ci_fields = QWidget()
+        ci_form = form_layout()
+        self.ci_user_edit = QLineEdit("lab")
+        ci_form.addRow("User", self.ci_user_edit)
+        self.ci_key_edit = QLineEdit()
+        key_row = QHBoxLayout()
+        key_row.addWidget(self.ci_key_edit, 1)
+        key_browse = QPushButton("Browse…")
+        key_browse.setObjectName("SecondaryButton")
+        key_browse.clicked.connect(self._browse_key)
+        key_row.addWidget(key_browse)
+        ci_form.addRow("SSH public key", key_row)
+        self.ci_packages_edit = QLineEdit()
+        self.ci_packages_edit.setPlaceholderText("vim, tcpdump")
+        ci_form.addRow("Packages", self.ci_packages_edit)
+        self.ci_ip_edit = QLineEdit()
+        self.ci_ip_edit.setPlaceholderText("optional, e.g. 192.168.50.11/24")
+        ci_form.addRow("Static IP", self.ci_ip_edit)
+        self.ci_gateway_edit = QLineEdit()
+        ci_form.addRow("Gateway", self.ci_gateway_edit)
+        self.ci_fields.setLayout(ci_form)
+        layout.addWidget(self.ci_fields)
+        cloud_hint = QLabel(
+            "cloud-init owns the clone identity, so offline identity reset is "
+            "disabled while the seed is attached."
+        )
+        cloud_hint.setObjectName("Muted")
+        cloud_hint.setWordWrap(True)
+        layout.addWidget(cloud_hint)
+        layout.addStretch(1)
+        return page
+
+    def _build_windows_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        title = QLabel("Unattended setup")
+        title.setObjectName("SectionLabel")
+        layout.addWidget(title)
+        self.windows_oobe_check = QCheckBox(
+            "Attach Windows OOBE answer USB (sysprepped image)"
+        )
+        set_tooltip(
+            self.windows_oobe_check,
+            "Enable only for the v-EMU Server 2025 unattended/OOBE clone flow.",
+        )
+        self.windows_oobe_check.toggled.connect(self._windows_oobe_toggled)
+        layout.addWidget(self.windows_oobe_check)
+
+        form = form_layout()
+        self.windows_password_edit = QLineEdit("Vemu!Lab2026")
+        self.windows_password_edit.setPlaceholderText(
+            "8+ characters; used only when OOBE answer is attached"
+        )
+        self.windows_password_edit.setEnabled(False)
+        form.addRow("Administrator password", self.windows_password_edit)
+        layout.addLayout(form)
+
+        hint = QLabel(
+            "Only sysprepped Windows templates accept a clone-time OOBE "
+            "answer. The answer USB is attached to the clone and removed by "
+            "the guest after first boot."
+        )
+        hint.setObjectName("Muted")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+        return page
+
+    def _cloud_init_toggled(self, checked: bool) -> None:
+        if self.os_family != "linux":
+            return
+        self.identity_check.setEnabled(not checked)
+        if checked:
+            self.identity_check.setChecked(False)
+        self.ci_fields.setVisible(checked)
 
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(
@@ -455,7 +604,9 @@ class TemplateCloneDialog(VemuDialog):
                 "Create a network profile under Networks first.",
             )
             return
-        cloud_init = self.cloud_init_check.isChecked()
+        cloud_init = (
+            self.cloud_init_check.isChecked() and self.os_family == "linux"
+        )
         windows_oobe = bool(
             self.windows_oobe_check.isChecked()
             and self.os_family == "windows"
@@ -486,7 +637,8 @@ class TemplateCloneDialog(VemuDialog):
             "memory": memory,
             "vcpus": vcpus,
             "network": str(network),
-            "reset_identity": not cloud_init
+            "reset_identity": self.identity_check.isChecked()
+            and not cloud_init
             and self.os_family == "linux",
             "cloud_init": cloud_init,
             "cloud_init_user": self.ci_user_edit.text().strip() or "lab",
@@ -926,6 +1078,37 @@ class TemplatesPage(QWidget):
             self.status.emit(
                 f"Imported template {dialog.created.get('name', '')}"
             )
+
+    def import_image(
+        self, source: str, name: str = ""
+    ) -> dict[str, Any] | None:
+        """Open the template import dialog prefilled for an image artifact."""
+
+        if not hasattr(self.backend, "template_import"):
+            self.status.emit("Templates require vemud.")
+            return None
+        root = self.root_edit.text().strip() or self.root
+        if not root:
+            QMessageBox.warning(
+                self, "Import template", "Choose a template root first."
+            )
+            return None
+        Path(root).mkdir(parents=True, exist_ok=True)
+        dialog = TemplateImportDialog(
+            self.backend,
+            root,
+            self,
+            source=source,
+            name=name,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        self.refresh()
+        if dialog.created:
+            self.status.emit(
+                f"Imported template {dialog.created.get('name', '')}"
+            )
+        return dialog.created
 
     def _clone(self) -> None:
         template = self._selected_template()

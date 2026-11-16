@@ -1,0 +1,95 @@
+# vEMU desktop template — Fedora 45 KDE (installer ISO)
+#
+# Build:
+#   image-builder manifest minimal-installer --distro fedora-45 --blueprint blueprint-iso.toml
+#   image-builder build minimal-installer --distro fedora-45 \
+#     --blueprint blueprint-iso.toml --output-dir ./out
+#
+# Edit or delete any block. Optional repo/debloat blocks are commented at the
+# bottom; if you enable a repo, also pass its URL with --extra-repo.
+
+name = "vemu-fedora-kde-iso"
+description = "Fedora 45 KDE installer ISO for vEMU labs"
+version = "1.0.0"
+distro = "fedora-45"
+
+[[groups]]
+name = "kde-desktop"
+
+[[packages]]
+name = "konsole"
+version = "*"
+
+[[packages]]
+name = "dolphin"
+version = "*"
+
+[[packages]]
+name = "kwrite"
+version = "*"
+
+[[packages]]
+name = "chromium"
+version = "*"
+
+[[packages]]
+name = "openssh-server"
+version = "*"
+
+[[packages]]
+name = "qemu-guest-agent"
+version = "*"
+
+[customizations.timezone]
+timezone = "UTC"
+# ntpservers = ["0.pool.ntp.org", "1.pool.ntp.org"]
+
+[customizations.locale]
+languages = ["en_US.UTF-8"]
+keyboard = "us"
+
+[[customizations.directories]]
+path = "/etc/systemd/system/packagekit.service.d"
+
+[[customizations.files]]
+path = "/etc/systemd/system/packagekit.service.d/10-vemu-timeout.conf"
+data = "[Unit]\nAfter=network-online.target\n\n[Service]\nTimeoutStartSec=180\n"
+mode = "0644"
+
+[[customizations.directories]]
+path = "/etc/skel/.config"
+
+[[customizations.directories]]
+path = "/etc/chromium"
+
+[[customizations.directories]]
+path = "/etc/chromium/policies"
+
+[[customizations.directories]]
+path = "/etc/chromium/policies/managed"
+
+[[customizations.files]]
+path = "/etc/plasma-setup-done"
+data = "Image Builder: Plasma Setup already applied\n"
+mode = "0644"
+
+[[customizations.files]]
+path = "/etc/chromium/policies/managed/enterprise_policy.json"
+data = "{\n  \"HomepageLocation\": \"https://www.google.com\",\n  \"RestoreOnStartup\": 4,\n  \"RestoreOnStartupURLs\": [\"https://www.google.com\"],\n  \"BookmarkBarEnabled\": false\n}\n"
+mode = "0644"
+
+[[packages]]
+name = "python3"
+version = "*"
+
+[[packages]]
+name = "plymouth"
+version = "*"
+
+[[packages]]
+name = "plymouth-scripts"
+version = "*"
+
+[[packages]]
+name = "plymouth-plugin-two-step"
+version = "*"

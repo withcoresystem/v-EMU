@@ -25,7 +25,7 @@ from .errors import Conflict, NotFound, ValidationError
 from .qemuuser import qemu_identity
 from .tools import which as find_which
 
-ROLES = {"labs", "templates", "isos"}
+ROLES = {"labs", "templates", "isos", "images"}
 DEFAULT_CONFIG = "/etc/vemu/storage.json"
 MIN_FREE_BYTES = 20 * 1024 * 1024 * 1024
 FILE_SUFFIXES = {".iso", ".qcow2", ".raw", ".img"}
@@ -463,7 +463,7 @@ def inspect_location(path: str | Path, role: str = "labs") -> Location:
             issues.append("The qemu user cannot traverse this path.")
         if qemu_read is False:
             issues.append("The qemu user cannot read this path.")
-        if qemu_write is False:
+        if qemu_write is False and role != "images":
             issues.append("The qemu user cannot write to this path.")
         if filesystem == "btrfs" and nodatacow is False:
             warnings.append(
@@ -534,18 +534,36 @@ def plan_fix(location: Location, *, force_selinux: bool = False) -> list[Action]
             )
 
     identity = qemu_identity()
-    if location.owner != identity.owner:
+    if location.role != "images" and location.owner != identity.owner:
         actions.append(
             Action("Set ownership", ["chown", identity.owner, str(path)])
         )
-    if location.mode != ("755" if location.role == "isos" else "750"):
-        mode = "0755" if location.role == "isos" else "0750"
+    expected_mode = "755" if location.role == "isos" else "750"
+    if location.mode != expected_mode:
         actions.append(
-            Action("Set directory mode", ["chmod", mode, str(path)])
+            Action(
+                "Set directory mode",
+                ["chmod", f"0{expected_mode}", str(path)],
+            )
         )
 
     qemu_user = identity.user
     if qemu_user:
+        if location.role == "images":
+            # The directory keeps its builder-user owner and is tightened to
+            # 0750, so qemu needs an explicit read/traverse ACL even if the
+            # current 0755 mode happens to allow access.
+            actions.append(
+                Action(
+                    f"Allow qemu to read {path}",
+                    [
+                        "setfacl",
+                        "-m",
+                        f"u:{qemu_user}:rx",
+                        str(path),
+                    ],
+                )
+            )
         for parent in reversed(path.parents):
             if parent == Path("/"):
                 continue

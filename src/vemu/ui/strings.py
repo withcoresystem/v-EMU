@@ -11,6 +11,7 @@ APP_TAGLINE = "Desktop Virtualization for QEMU/KVM"
 
 NAV_LABS = "Labs"
 NAV_TEMPLATES = "Templates"
+NAV_IMAGE_BUILDER = "Image Builder"
 NAV_VMS = "Virtual machines"
 NAV_NETWORKS = "Networks"
 NAV_STORAGE = "Storage"

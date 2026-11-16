@@ -116,7 +116,7 @@ class StorageAddDialog(VemuDialog):
         role_row = QHBoxLayout()
         role_row.addWidget(QLabel("Role"))
         self.role_combo = ComboBox()
-        self.role_combo.addItems(["labs", "templates", "isos"])
+        self.role_combo.addItems(["labs", "templates", "isos", "images"])
         role_row.addWidget(self.role_combo)
         role_row.addStretch(1)
         layout.addLayout(role_row)

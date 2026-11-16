@@ -1,0 +1,84 @@
+# vEMU desktop template — RHEL-like GNOME (AlmaLinux 10.2, qcow2)
+#
+# Build:
+#   image-builder manifest qcow2 --distro almalinux-10.2 --blueprint blueprint-iso.toml
+#   image-builder build qcow2 --distro almalinux-10.2 \
+#     --blueprint blueprint-iso.toml --output-dir ./out
+#
+# For Rocky/CentOS/Oracle, change distro to the matching image-builder name.
+# RHEL itself needs subscription/entitlement and is not a 0.2.0 target.
+#
+# AlmaLinux GNOME comes from the base repositories. EPEL/CRB are optional here;
+# uncomment them only if you add packages that need them.
+
+name = "vemu-rhel-like-gnome-iso"
+description = "RHEL-like GNOME installer ISO for vEMU labs"
+version = "1.0.0"
+distro = "almalinux-10.2"
+
+[[groups]]
+name = "gnome-desktop"
+
+[[packages]]
+name = "firefox"
+version = "*"
+
+[[packages]]
+name = "openssh-server"
+version = "*"
+
+[[packages]]
+name = "qemu-guest-agent"
+version = "*"
+
+# Required for customizations.locale.languages = ["en_US.UTF-8"].
+[[packages]]
+name = "glibc-langpack-en"
+version = "*"
+
+# GNOME uses U+2236 (ratio colon) in the clock and display settings. The
+# minimal image has no font covering it, which renders as a box; DejaVu Sans
+# provides the fallback glyph.
+[[packages]]
+name = "dejavu-sans-fonts"
+version = "*"
+
+[customizations.timezone]
+timezone = "UTC"
+# ntpservers = ["0.pool.ntp.org", "1.pool.ntp.org"]
+
+[customizations.locale]
+languages = ["en_US.UTF-8"]
+keyboard = "us"
+
+[[customizations.directories]]
+path = "/etc/systemd/system/packagekit.service.d"
+
+[[customizations.files]]
+path = "/etc/systemd/system/packagekit.service.d/10-vemu-timeout.conf"
+data = "[Unit]\nAfter=network-online.target\n\n[Service]\nTimeoutStartSec=180\n"
+mode = "0644"
+
+[[customizations.directories]]
+path = "/etc/skel/.config"
+
+[[customizations.files]]
+path = "/etc/skel/.config/gnome-initial-setup-done"
+data = "done\n"
+mode = "0644"
+
+[[packages]]
+name = "python3"
+version = "*"
+
+[[packages]]
+name = "plymouth"
+version = "*"
+
+[[packages]]
+name = "plymouth-scripts"
+version = "*"
+
+[[packages]]
+name = "plymouth-plugin-two-step"
+version = "*"

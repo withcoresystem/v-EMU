@@ -249,6 +249,60 @@ class SnapshotsUiTests(unittest.TestCase):
         finally:
             dialog.close()
 
+    def test_model_two_marks_current_and_limits_actions(self) -> None:
+        from vemu.ui.snapshots import SnapshotsDialog
+
+        info = {
+            "managed": True,
+            "domain": "vm1",
+            "running": False,
+            "chain": "/tmp/vm1",
+            "active": "0002",
+            "snapshot_model": 2,
+            "active_disk": "/tmp/vm1/disk-0002.qcow2",
+            "layers": [
+                {
+                    "id": "0001",
+                    "label": "before-gpo",
+                    "parent": "base",
+                    "actual_size": 1024,
+                    "active": False,
+                },
+                {
+                    "id": "0002",
+                    "label": "",
+                    "parent": "0001",
+                    "actual_size": 1024,
+                    "active": True,
+                },
+            ],
+        }
+
+        class FakeBackend:
+            def snapshots_info(self, _name: str) -> dict:
+                return info
+
+        dialog = SnapshotsDialog(FakeBackend(), "vm1")
+        try:
+            self.assertIn("new current layer", dialog.state_label.text())
+            root = dialog.table.topLevelItem(0)
+            self.assertEqual(root.text(1), "before-gpo")
+            current = root.child(0)
+            self.assertEqual(current.text(1), "Current")
+            dialog.table.setCurrentItem(current)
+            self.assertFalse(dialog.edit_button.isEnabled())
+            self.assertFalse(dialog.revert_button.isEnabled())
+            self.assertFalse(dialog.delete_button.isEnabled())
+            self.assertIn(
+                "Current state", dialog.details_description.toPlainText()
+            )
+            dialog.table.setCurrentItem(root)
+            self.assertTrue(dialog.edit_button.isEnabled())
+            self.assertTrue(dialog.revert_button.isEnabled())
+            self.assertTrue(dialog.delete_button.isEnabled())
+        finally:
+            dialog.close()
+
     def test_running_requires_offline_snapshot(self) -> None:
         from vemu.ui.snapshots import SnapshotsDialog
 

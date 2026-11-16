@@ -160,6 +160,32 @@ def _read_ip_forward() -> str:
     return "unknown"
 
 
+def _passthrough_check(domains) -> dict[str, Any]:
+    """Report domains downgraded to External because of host passthrough."""
+    passthrough = [
+        item for item in domains if getattr(item, "passthrough", False)
+    ]
+    if not passthrough:
+        return _check(
+            "host_passthrough",
+            True,
+            "no host passthrough domains",
+            required=False,
+        )
+    summary = ", ".join(
+        f"{item.name} ({item.passthrough_detail})" for item in passthrough
+    )
+    check = _check(
+        "host_passthrough",
+        False,
+        f"read-only External: {summary}; remove the hostdev to manage these "
+        "VMs in v-EMU",
+        required=False,
+    )
+    check["domains"] = [item.name for item in passthrough]
+    return check
+
+
 def _ip_forward_check(
     value: str, *, nat_registered: bool
 ) -> dict[str, Any]:
@@ -288,24 +314,29 @@ def run_checks(uri: str = "qemu:///system", *, config: str | None = None) -> dic
             hint="optional riscv64 TCG guests",
         )
     )
-    for name, path in (
-        ("edk2-aarch64", "/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw"),
-        ("edk2-riscv64", "/usr/share/edk2/riscv/RISCV_VIRT_CODE.fd"),
+    for name, arch, path in (
+        ("edk2-aarch64", "aarch64", "/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw"),
+        ("edk2-riscv64", "riscv64", "/usr/share/edk2/riscv/RISCV_VIRT_CODE.fd"),
     ):
-        exists = Path(path).is_file()
+        custom = firmware_for(arch)
+        if custom is not None:
+            detail = f"v-EMU custom firmware: {custom.loader}"
+            exists = True
+        else:
+            exists = Path(path).is_file()
+            detail = path if exists else f"not found: {path}"
         checks.append(
-            _check(
-                name,
-                exists,
-                path if exists else f"not found: {path}",
-                required=False,
-            )
+            _check(name, exists, detail, required=False)
         )
-    virtiofsd = _which("virtiofsd") or (
-        "/usr/libexec/virtiofsd"
-        if Path("/usr/libexec/virtiofsd").is_file()
-        else None
-    )
+    virtiofsd = _which("virtiofsd")
+    if virtiofsd is None:
+        for candidate in (
+            "/usr/libexec/virtiofsd",
+            "/usr/lib/virtiofsd",
+        ):
+            if Path(candidate).is_file():
+                virtiofsd = candidate
+                break
     checks.append(
         _check(
             "virtiofsd",
@@ -387,6 +418,7 @@ def run_checks(uri: str = "qemu:///system", *, config: str | None = None) -> dic
         if drifted:
             drift_check["domains"] = drifted
         checks.append(drift_check)
+        checks.append(_passthrough_check(domains))
         try:
             with LibvirtBackend(uri) as backend:
                 backend.usb_devices()

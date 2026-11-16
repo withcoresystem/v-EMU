@@ -164,6 +164,10 @@ def _domain_dict(domain) -> dict[str, Any]:
         "firmware": domain.firmware,
         "managed_by": domain.managed_by,
         "os_type": domain.os_type,
+        "passthrough": bool(getattr(domain, "passthrough", False)),
+        "passthrough_detail": str(
+            getattr(domain, "passthrough_detail", "") or ""
+        ),
     }
 
 
@@ -175,6 +179,13 @@ def _require_writable(
 ):
     info = backend.info(domain)
     managed = getattr(info, "managed_by", "v-EMU (full)")
+    if getattr(info, "passthrough", False):
+        raise Conflict(
+            f"Domain '{domain}' uses host passthrough "
+            f"({info.passthrough_detail or 'host device'}) and is read-only "
+            "in v-EMU. Remove the hostdev from the libvirt XML (for example "
+            "with `virsh edit`) to manage it here."
+        )
     if managed == "External":
         raise Conflict(
             f"Domain '{domain}' is external/read-only. Adopt it into v-EMU "
@@ -204,6 +215,12 @@ def adopt_domain(
         raise ValidationError("Adopt mode must be read-only or partial.")
     with LibvirtBackend(uri) as backend:
         info = backend.info(domain)
+        if getattr(info, "passthrough", False):
+            raise Conflict(
+                f"Domain '{domain}' uses host passthrough "
+                f"({info.passthrough_detail or 'host device'}) and cannot be "
+                "adopted. Remove the hostdev from the libvirt XML first."
+            )
         if mode == "read-only":
             return {
                 "domain": domain,
@@ -851,13 +868,14 @@ def snapshots_revert(
         _chain_source_changes(backend, domain, manager.load())
         ejected = _eject_all_cdroms(backend, domain)
         try:
-            manager.revert(layer)
+            manager.revert(layer, cleanup=False)
             _relabel(chain_dir)
             changes = _chain_source_changes(
                 backend, domain, manager.load()
             )
             if changes:
                 backend.update_disk_sources(domain, changes)
+            manager.cleanup_deferred()
         except Exception:
             try:
                 backend.redefine_domain(domain, before)
@@ -1234,7 +1252,13 @@ def vm_rename_plan(
         reasons.append(f"Domain '{new_name}' already exists.")
     if info.state != "stopped":
         reasons.append("The VM must be shut down before renaming.")
-    if managed_by == "External":
+    if getattr(info, "passthrough", False):
+        reasons.append(
+            "Host passthrough "
+            f"({info.passthrough_detail or 'host device'}) keeps this VM "
+            "read-only; remove the hostdev before renaming."
+        )
+    elif managed_by == "External":
         reasons.append(
             "External/read-only domains cannot be renamed; adopt the VM first."
         )
@@ -2746,6 +2770,12 @@ def vm_migration_plan(
         reasons.append("qemu-img was not found.")
     if info.state != "stopped":
         reasons.append("The VM must be shut down.")
+    if getattr(info, "passthrough", False):
+        reasons.append(
+            "Host passthrough "
+            f"({info.passthrough_detail or 'host device'}) is not carried by "
+            "full migration; remove the hostdev first."
+        )
     if not disks:
         reasons.append("The VM has no data disk to migrate.")
     if destination and Path(destination).exists():
@@ -2781,7 +2811,12 @@ def vm_migration_plan(
             "disks": [],
         }
     )
-    if import_snapshots and snapshots and info.managed_by != "External":
+    if import_snapshots and snapshots and getattr(info, "passthrough", False):
+        reasons.append(
+            "Snapshot import is not available for host passthrough VMs; "
+            "v-EMU treats them as read-only."
+        )
+    elif import_snapshots and snapshots and info.managed_by != "External":
         reasons.append(
             "Snapshot import is only available for External VMs before "
             "migration; Partial/Full XML already belongs to v-EMU."
@@ -3222,6 +3257,10 @@ def vm_config_info(
         "config": config,
         "state": info.state,
         "managed_by": info.managed_by,
+        "passthrough": bool(getattr(info, "passthrough", False)),
+        "passthrough_detail": str(
+            getattr(info, "passthrough_detail", "") or ""
+        ),
         "has_v2_chain": has_v2_chain,
         "drift": drift.details(xml),
         "pending_restart": info.state == "running",
@@ -5487,6 +5526,24 @@ def storage_delete_file(
             "Template images are deleted from the Templates page, "
             "not Storage."
         )
+    if location.role == "images" and resolved.is_dir():
+        root = Path(location.path).resolve()
+        if resolved.parent != root:
+            raise Conflict(
+                "Only Image Builder job directories can be deleted here."
+            )
+        if resolved.is_symlink():
+            raise Conflict("Refusing to delete a symbolic link.")
+        if (resolved / CHAIN_FILE).is_file():
+            raise Conflict(
+                "Chain directories are not Image Builder job directories."
+            )
+        shutil.rmtree(resolved)
+        return {
+            "path": str(resolved),
+            "kind": "image-job",
+            "deleted": True,
+        }
     data = storage_files(location.path, config=config, uri=uri)
     entries = list(data["files"]) + list(data["chains"])
     match = next(

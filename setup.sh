@@ -417,6 +417,22 @@ enable_virtualization() {
     fi
 }
 
+ensure_virtnodedev_socket() {
+    # Package scripts can stop the modular nodedev socket while installing
+    # libvirt. Make sure the USB device service is listening after the
+    # transaction; vemud also Wants it on every start.
+    if ! command -v systemctl >/dev/null 2>&1; then
+        return
+    fi
+    if ! systemctl is-active --quiet virtqemud; then
+        return
+    fi
+    if systemctl cat virtnodedevd.socket >/dev/null 2>&1; then
+        "${SUDO[@]}" systemctl enable --now virtnodedevd.socket \
+            >/dev/null 2>&1 || true
+    fi
+}
+
 enable_ip_forward() {
     # NAT lab networks need IPv4 forwarding. libvirt normally sets this when a
     # NAT network starts, but a fresh host with no networks yet would fail
@@ -600,6 +616,8 @@ precheck_host() {
         precheck_ok "virtiofsd ($(command -v virtiofsd))"
     elif [[ -x /usr/libexec/virtiofsd ]]; then
         precheck_ok "virtiofsd (/usr/libexec/virtiofsd)"
+    elif [[ -x /usr/lib/virtiofsd ]]; then
+        precheck_ok "virtiofsd (/usr/lib/virtiofsd)"
     else
         precheck_warn "virtiofsd not found (optional; VirtioFS shares disabled)"
     fi
@@ -1058,7 +1076,7 @@ if [[ $INSTALL_SYSTEM -eq 1 ]]; then
         fi
     else
         echo "Unsupported host distribution. Use --no-system after installing" >&2
-        echo "the packages listed in docs/COMPATIBILITY.md." >&2
+        echo "the packages listed in the host support section of MANUAL.md." >&2
         exit 1
     fi
 fi
@@ -1248,8 +1266,8 @@ if [[ $INSTALL_DAEMON -eq 1 ]]; then
         # vemud_t policy when it exists.
         SELINUX_CONTEXT="SELinuxContext=system_u:system_r:unconfined_t:s0"
     fi
-    VIRT_AFTER="After=libvirtd.service virtqemud.socket virtnetworkd.service virtstoraged.service"
-    VIRT_WANTS="Wants=virtqemud.socket virtnetworkd.service virtstoraged.service"
+    VIRT_AFTER="After=libvirtd.service virtqemud.socket virtnodedevd.socket virtnetworkd.service virtstoraged.service"
+    VIRT_WANTS="Wants=virtqemud.socket virtnodedevd.socket virtnetworkd.service virtstoraged.service"
     if [[ $DISTRO_FAMILY == "debian" ]]; then
         VIRT_AFTER="After=libvirtd.service"
         VIRT_WANTS="Wants=libvirtd.service"
@@ -1315,6 +1333,7 @@ fi
 if command -v systemctl >/dev/null 2>&1; then
     enable_virtualization
 fi
+ensure_virtnodedev_socket
 enable_ip_forward
 
 if [[ $(id -u) -ne 0 ]]; then

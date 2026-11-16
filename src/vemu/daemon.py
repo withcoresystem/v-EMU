@@ -7,7 +7,7 @@ domain definitions. Clients connect through ``/run/vemu/vemud.sock``.
 Protocol: one JSON object per line.
 
     -> {"id": 1, "method": "ping", "params": {}}
-    <- {"id": 1, "result": {"pong": true, "version": "0.1.0"}}
+    <- {"id": 1, "result": {"pong": true, "version": "0.2.0"}}
 
 This is intentionally small and dependency-free so it can be audited easily.
 """
@@ -948,7 +948,8 @@ class VemuDaemon:
         service.require_chain_writable(chain, self.uri)
         manager = ChainManager(chain)
         layer = manager.revert(_require(params, "layer"))
-        return layer.to_dict()
+        info = manager.info()
+        return {**layer.to_dict(), "active": info["active"]}
 
     def m_chain_delete(self, params: dict[str, Any]) -> dict[str, Any]:
         chain = _require(params, "chain")
@@ -1011,7 +1012,7 @@ class VemuDaemon:
         return service.storage_repair(
             self._safe_path(
                 _require(params, "path"),
-                roles=("labs", "templates", "isos"),
+                roles=("labs", "templates", "isos", "images"),
                 must_exist=True,
             ),
             str(params.get("role", "labs")),

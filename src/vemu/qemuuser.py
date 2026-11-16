@@ -9,7 +9,8 @@ Resolution order:
 
 1. ``VEMU_QEMU_USER`` / ``VEMU_QEMU_GROUP`` environment overrides.
 2. Active ``user``/``group`` values in ``/etc/libvirt/qemu.conf``.
-3. Distribution defaults (Debian/Ubuntu first, then Fedora/RHEL/SUSE).
+3. Distribution defaults (Debian/Ubuntu and Arch first, then
+   Fedora/RHEL/SUSE).
 4. Fallback candidates ``qemu`` and ``libvirt-qemu``.
 
 The daemon runs as root, so explicit overrides are validated and root/UID 0 is
@@ -90,6 +91,14 @@ def _distro_candidates(path: str | Path) -> list[tuple[str, str]]:
     family = f"{values.get('ID', '')} {values.get('ID_LIKE', '')}".lower()
     if "debian" in family or "ubuntu" in family:
         return [("libvirt-qemu", "kvm"), ("qemu", "qemu")]
+    if "arch" in family or "cachyos" in family:
+        # Arch's libvirt package runs QEMU as libvirt-qemu:libvirt-qemu.
+        # The separate qemu account is not the libvirt worker.
+        return [
+            ("libvirt-qemu", "libvirt-qemu"),
+            ("libvirt-qemu", "kvm"),
+            ("qemu", "qemu"),
+        ]
     return [("qemu", "qemu"), ("libvirt-qemu", "kvm")]
 
 

@@ -5,13 +5,18 @@ A chain is a tree of qcow2 overlays on top of an immutable base image::
     base.qcow2  <-  disk-0001.qcow2  <-  disk-0002.qcow2
                                     \\-  disk-0003.qcow2
 
-Only the active layer is attached to a VM. Snapshots create new layers;
-reverting switches the active layer; deleting merges linear parents and
-children. Branched layers can be deleted leaf-first but are not merged
-automatically.
+Only the active layer is attached to a VM.  Chains created by vEMU use
+``snapshot_model`` 2: a snapshot freezes the current layer and starts a new
+unlabelled *current* layer on top of it.  Reverting to a snapshot discards the
+current layer and starts a new one on the target, so snapshots are never
+written to.  Chains without the marker keep the legacy model, where the new
+overlay carried the snapshot label and reverting simply switched the active
+layer.
 
-All operations expect the VM to be shut down. Files may be owned by ``qemu``
-after libvirt has started a domain, so the production daemon runs them as root.
+Deleting merges linear snapshot parents and children; branched layers can be
+deleted leaf-first but are not merged automatically.  All operations expect the
+VM to be shut down.  Files may be owned by ``qemu`` after libvirt has started a
+domain, so the production daemon runs them as root.
 """
 
 from __future__ import annotations
@@ -303,6 +308,7 @@ class MultiDiskChain:
     version: int
     disks: dict[str, Chain]
     multi_disk: bool = True
+    snapshot_model: int = 1
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MultiDiskChain":
@@ -310,6 +316,11 @@ class MultiDiskChain:
         if version != CHAIN_VERSION:
             raise ValidationError(
                 f"Unsupported chain version {version}; expected {CHAIN_VERSION}."
+            )
+        snapshot_model = int(data.get("snapshot_model", 1))
+        if snapshot_model not in (1, 2):
+            raise ValidationError(
+                f"Unsupported snapshot model {snapshot_model}; expected 1 or 2."
             )
         raw = data.get("disks")
         if not isinstance(raw, dict) or not raw:
@@ -322,13 +333,18 @@ class MultiDiskChain:
             disk.target = str(item.get("target", target))
             disk.bus = str(item.get("bus", ""))
             disks[str(target)] = disk
-        chain = cls(version=version, disks=disks)
+        chain = cls(
+            version=version,
+            disks=disks,
+            snapshot_model=snapshot_model,
+        )
         chain.validate()
         return chain
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
+            "snapshot_model": self.snapshot_model,
             "disks": {
                 target: disk.to_disk_dict()
                 for target, disk in self.disks.items()
@@ -430,6 +446,7 @@ class ChainManager:
         self.chain_dir = Path(chain_dir).expanduser().resolve()
         self.chain_file = self.chain_dir / CHAIN_FILE
         self.qemu_img = qemu_img
+        self._deferred_cleanup: list[Path] = []
 
     # ------------------------------------------------------------------ load/save
 
@@ -474,6 +491,7 @@ class ChainManager:
         *,
         target: str = "vda",
         bus: str = "",
+        snapshot_model: int = 2,
     ) -> "ChainManager":
         """Create a v2 chain with one disk (the normal VM case)."""
         return cls.create_multi(
@@ -487,6 +505,7 @@ class ChainManager:
                 }
             ],
             qemu_img=qemu_img,
+            snapshot_model=snapshot_model,
         )
 
     @classmethod
@@ -495,12 +514,19 @@ class ChainManager:
         chain_dir: str | Path,
         disks: list[dict[str, Any]],
         qemu_img: str = QEMU_IMG,
+        *,
+        snapshot_model: int = 2,
     ) -> "ChainManager":
         """Create a version 2 chain with one base and overlay per data disk.
 
         ``disks`` entries need ``target`` and ``base``; ``bus`` and ``label``
-        are optional.
+        are optional. New chains use snapshot model 2 unless a caller asks for
+        the legacy model 1.
         """
+        if snapshot_model not in (1, 2):
+            raise ValidationError(
+                f"Unsupported snapshot model {snapshot_model}; expected 1 or 2."
+            )
         manager = cls(chain_dir, qemu_img=qemu_img)
         if manager.chain_file.exists():
             raise Conflict(f"A chain already exists at {manager.chain_file}.")
@@ -544,6 +570,7 @@ class ChainManager:
                     target=target,
                     bus=str(spec.get("bus", "")),
                 )
+            chain.snapshot_model = snapshot_model
             manager.save(chain)
         except Exception:
             for path in created:
@@ -810,8 +837,16 @@ class ChainManager:
     def snapshot(
         self, label: str = "", description: str = ""
     ) -> Layer | SnapshotSet:
+        """Preserve the current state and continue on a new layer.
+
+        Model 2 labels the active layer and creates a new current overlay on
+        top of it. The legacy model creates the overlay first and puts the
+        label on it.
+        """
         chain = self.load()
         if isinstance(chain, MultiDiskChain):
+            if chain.snapshot_model >= 2:
+                return self._snapshot_current(chain, label, description)
             return self._snapshot_multi(chain, label, description)
         parent_id = chain.active or "base"
         parent_path = (
@@ -836,9 +871,24 @@ class ChainManager:
             raise
         return layer
 
-    def revert(self, layer_id: str) -> Layer | SnapshotSet:
+    def revert(
+        self, layer_id: str, *, cleanup: bool = True
+    ) -> Layer | SnapshotSet:
+        """Switch the VM to a snapshot.
+
+        Model 2 discards the current layer and creates a new current overlay
+        on the target snapshot, so the snapshot is never written to. Pass
+        ``cleanup=False`` to defer deleting the discarded files until a caller
+        (for example the libvirt service after updating the domain XML) calls
+        :meth:`cleanup_deferred`.
+        """
         chain = self.load()
         if isinstance(chain, MultiDiskChain):
+            if chain.snapshot_model >= 2:
+                result = self._revert_current(chain, layer_id)
+                if cleanup:
+                    self.cleanup_deferred()
+                return result
             return self._revert_multi(chain, layer_id)
         layer = chain.layer(layer_id)
         chain.active = layer.id
@@ -849,6 +899,17 @@ class ChainManager:
         """Return to the first layer (the clean clone on top of the template)."""
         chain = self.load()
         if isinstance(chain, MultiDiskChain):
+            if chain.snapshot_model >= 2:
+                first_ids = {
+                    disk.first_layer().id
+                    for disk in chain.disks.values()
+                    if disk.first_layer() is not None
+                }
+                if len(first_ids) != 1:
+                    raise ValidationError(
+                        "Multi-disk chain disks have different baseline layers."
+                    )
+                return self.revert(next(iter(first_ids)))
             return self._reset_multi(chain)
         layer = chain.first_layer()
         if layer is None:
@@ -869,6 +930,14 @@ class ChainManager:
             raise ValidationError("No snapshot metadata was provided.")
         chain = self.load()
         if isinstance(chain, MultiDiskChain):
+            if (
+                chain.snapshot_model >= 2
+                and layer_id == chain.active_set()
+            ):
+                raise Conflict(
+                    "The current layer is not a snapshot; create a snapshot "
+                    "before editing its metadata."
+                )
             layers: dict[str, Layer] = {}
             for target, disk in chain.disks.items():
                 layer = disk.layer(layer_id)
@@ -905,6 +974,14 @@ class ChainManager:
         """
         chain = self.load()
         if isinstance(chain, MultiDiskChain):
+            if (
+                chain.snapshot_model >= 2
+                and layer_id == chain.active_set()
+            ):
+                raise Conflict(
+                    "Cannot delete the current layer; revert to a snapshot "
+                    "or reset the chain first."
+                )
             return self._delete_multi(chain, layer_id, force=force)
         return self._delete_single(chain, layer_id, force=force)
 
@@ -1012,6 +1089,147 @@ class ChainManager:
             label=label,
             description=description,
             created_at=created_at,
+            layers=layers,
+        )
+
+    def _snapshot_current(
+        self, chain: MultiDiskChain, label: str, description: str
+    ) -> SnapshotSet:
+        """Freeze the active layer and start a new current layer on top.
+
+        Snapshot model 2 keeps labels on the state being preserved. The active
+        layer is never written after this call; the VM continues on a fresh
+        overlay.
+        """
+        label = label.strip()
+        if not label:
+            raise ValidationError("Snapshot name is required.")
+        active_id = chain.active_set()
+        if active_id is None:
+            raise Conflict("Chain disks do not share an active layer.")
+        frozen: dict[str, Layer] = {}
+        created_at = _now()
+        for target, disk in chain.disks.items():
+            layer = disk.active_layer()
+            if layer is None:
+                raise Conflict(f"Disk '{target}' has no active layer.")
+            if disk.children(layer.id):
+                raise Conflict(
+                    f"Active layer '{layer.id}' has child layers; the chain "
+                    "is inconsistent."
+                )
+            frozen[target] = layer
+        new_id = self._next_id_multi(chain)
+        created: list[Path] = []
+        try:
+            for target, disk in chain.disks.items():
+                layer = frozen[target]
+                layer.label = label
+                layer.description = description
+                layer.created_at = created_at
+                current = Layer(
+                    id=new_id,
+                    path=str(
+                        self.chain_dir / f"disk-{target}-{new_id}.qcow2"
+                    ),
+                    parent=layer.id,
+                    created_at=_now(),
+                )
+                self._create_overlay(
+                    Path(layer.path), Path(current.path)
+                )
+                created.append(Path(current.path))
+                disk.layers.append(current)
+                disk.active = current.id
+            self.save(chain)
+        except Exception:
+            for path in created:
+                path.unlink(missing_ok=True)
+            raise
+        return SnapshotSet(
+            id=active_id,
+            label=label,
+            description=description,
+            created_at=created_at,
+            layers=frozen,
+        )
+
+    def _revert_current(
+        self, chain: MultiDiskChain, layer_id: str
+    ) -> SnapshotSet:
+        """Discard the current layer and start a new one on a snapshot."""
+        targets: dict[str, Layer] = {}
+        for target, disk in chain.disks.items():
+            targets[target] = disk.layer(layer_id)
+        active_id = chain.active_set()
+        if active_id is None:
+            raise Conflict("Chain disks do not share an active layer.")
+        if active_id == layer_id:
+            return self._snapshot_set(targets)
+
+        discarded: list[Path] = []
+        for target, disk in chain.disks.items():
+            current = disk.active_layer()
+            if current is None:
+                raise Conflict(f"Disk '{target}' has no active layer.")
+            if disk.children(current.id):
+                raise Conflict(
+                    f"Current layer '{current.id}' has child layers; the "
+                    "chain is inconsistent."
+                )
+            if current.label.strip():
+                raise Conflict(
+                    f"Current layer '{current.id}' carries a snapshot name; "
+                    "delete or rename it before reverting."
+                )
+            discarded.append(Path(current.path))
+        new_id = self._next_id_multi(chain)
+        for disk in chain.disks.values():
+            current = disk.active_layer()
+            if current is None:
+                raise Conflict("Chain lost its active layer.")
+            disk.layers.remove(current)
+
+        created: list[Path] = []
+        try:
+            for target, disk in chain.disks.items():
+                parent = targets[target]
+                layer = Layer(
+                    id=new_id,
+                    path=str(
+                        self.chain_dir / f"disk-{target}-{new_id}.qcow2"
+                    ),
+                    parent=parent.id,
+                    created_at=_now(),
+                )
+                self._create_overlay(
+                    Path(parent.path), Path(layer.path)
+                )
+                created.append(Path(layer.path))
+                disk.layers.append(layer)
+                disk.active = layer.id
+            self.save(chain)
+        except Exception:
+            for path in created:
+                path.unlink(missing_ok=True)
+            raise
+        self._deferred_cleanup.extend(discarded)
+        return self._snapshot_set(targets)
+
+    def cleanup_deferred(self) -> None:
+        """Delete files whose layers were discarded by a deferred revert."""
+        paths, self._deferred_cleanup = self._deferred_cleanup, []
+        for path in paths:
+            path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _snapshot_set(layers: dict[str, Layer]) -> SnapshotSet:
+        first = next(iter(layers.values()))
+        return SnapshotSet(
+            id=first.id,
+            label=first.label,
+            description=first.description,
+            created_at=first.created_at,
             layers=layers,
         )
 
@@ -1382,6 +1600,7 @@ class ChainManager:
             "active_disk": chain.active_disk(),
             "layers": layers,
             "pending_recovery": pending,
+            "snapshot_model": 1,
         }
 
     def _layer_info(self, chain: Chain, layer: Layer) -> dict[str, Any]:
@@ -1444,6 +1663,7 @@ class ChainManager:
         return {
             "multi_disk": True,
             "version": chain.version,
+            "snapshot_model": chain.snapshot_model,
             "disk_count": len(chain.disks),
             "disks": disks,
             "base": first.base,

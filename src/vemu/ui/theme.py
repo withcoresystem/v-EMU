@@ -1,6 +1,6 @@
 """Design tokens and Qt stylesheet generation.
 
-Tokens are aligned with the CoreSystem visual language (see docs/DESIGN.md):
+Tokens are aligned with the CoreSystem visual language:
 teal accent, neutral surfaces, border-first separation, light and dark parity.
 """
 
@@ -293,6 +293,40 @@ def stylesheet(tokens: Tokens) -> str:
         color: {t.accent};
         font-weight: 600;
     }}
+    QWidget#PageTabs {{
+        background: {t.surface};
+        border: 1px solid {t.border};
+        border-radius: {RADIUS.lg}px;
+    }}
+    QPushButton#PageTab {{
+        background: transparent;
+        color: {t.muted};
+        border: 1px solid transparent;
+        border-radius: {RADIUS.sm}px;
+        padding: 0 {SPACE.md}px;
+        font-size: {TYPE.body}px;
+        font-weight: 500;
+    }}
+    QPushButton#PageTab:hover {{
+        background: {t.hover};
+        color: {t.text};
+    }}
+    QPushButton#PageTab:checked {{
+        background: {t.accent_subtle};
+        color: {t.accent};
+        font-weight: 600;
+    }}
+    QPushButton#PageTab:checked:hover {{
+        background: {t.accent_subtle};
+        color: {t.accent};
+    }}
+    QPushButton#PageTab:focus {{
+        border-color: {t.accent};
+    }}
+    QPushButton#PageTab:disabled {{
+        color: {t.muted};
+        background: transparent;
+    }}
     QPushButton#PrimaryButton {{
         background: {t.accent};
         color: {t.on_accent};
@@ -496,7 +530,7 @@ def stylesheet(tokens: Tokens) -> str:
         border-color: {t.border_strong};
         image: url("{check}");
     }}
-    QTableWidget {{
+    QTableWidget, QTreeWidget {{
         background: {t.bg};
         alternate-background-color: {t.bg};
         border: 1px solid {t.border};
@@ -506,22 +540,22 @@ def stylesheet(tokens: Tokens) -> str:
         selection-color: {t.text};
         outline: 0;
     }}
-    QTableWidget::item:focus {{
+    QTableWidget::item:focus, QTreeWidget::item:focus {{
         border: none;
         outline: 0;
     }}
-    QTableWidget::item {{
+    QTableWidget::item, QTreeWidget::item {{
         padding: 0 8px;
         border-bottom: 1px solid {t.border};
     }}
-    QTableWidget::item:hover {{
+    QTableWidget::item:hover, QTreeWidget::item:hover {{
         background: {t.hover};
     }}
-    QTableWidget::item:selected {{
+    QTableWidget::item:selected, QTreeWidget::item:selected {{
         background: {t.accent_subtle};
         color: {t.text};
     }}
-    QTableWidget::item:selected:hover {{
+    QTableWidget::item:selected:hover, QTreeWidget::item:selected:hover {{
         background: {t.accent_subtle};
     }}
     QLabel#EmptyStateTitle {{
@@ -626,6 +660,19 @@ def stylesheet(tokens: Tokens) -> str:
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0;
+    }}
+    QScrollBar:horizontal {{
+        background: transparent;
+        height: 10px;
+        margin: 2px;
+    }}
+    QScrollBar::handle:horizontal {{
+        background: {t.border};
+        border-radius: 5px;
+        min-width: 24px;
+    }}
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+        width: 0;
     }}
     QStatusBar {{
         background: {t.bg};

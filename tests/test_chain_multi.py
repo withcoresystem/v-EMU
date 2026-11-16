@@ -76,17 +76,20 @@ class MultiDiskChainTests(unittest.TestCase):
         self.assertEqual(len(chain.disks), 1)
         self.assertTrue((self.chain_dir / "disk-vda-0001.qcow2").is_file())
         snapshot = manager.snapshot("one")
-        self.assertEqual(snapshot.id, "0002")
+        self.assertEqual(snapshot.id, "0001")
+        self.assertEqual(manager.load().active_set(), "0002")
         manager.revert("0001")
-        self.assertEqual(manager.load().active_set(), "0001")
-        manager.delete("0002", force=True)
-        self.assertEqual(manager.load().active_set(), "0001")
+        self.assertEqual(manager.load().active_set(), "0003")
+        self.assertFalse(
+            (self.chain_dir / "disk-vda-0002.qcow2").exists()
+        )
 
     def test_snapshot_set_and_revert(self) -> None:
         manager = self._create()
         snapshot = manager.snapshot("before-change")
         self.assertIsInstance(snapshot, SnapshotSet)
-        self.assertEqual(snapshot.id, "0002")
+        self.assertEqual(snapshot.id, "0001")
+        self.assertEqual(snapshot.label, "before-change")
         self.assertEqual(set(snapshot.layers), {"sda", "sdc"})
         chain = manager.load()
         self.assertEqual(chain.active_set(), "0002")
@@ -95,9 +98,14 @@ class MultiDiskChainTests(unittest.TestCase):
                 (self.chain_dir / f"disk-{target}-0002.qcow2").is_file()
             )
         manager.revert("0001")
-        self.assertEqual(manager.load().active_set(), "0001")
+        chain = manager.load()
+        self.assertEqual(chain.active_set(), "0003")
+        for target in ("sda", "sdc"):
+            self.assertFalse(
+                (self.chain_dir / f"disk-{target}-0002.qcow2").exists()
+            )
         manager.reset()
-        self.assertEqual(manager.load().active_set(), "0001")
+        self.assertEqual(manager.load().active_set(), "0004")
         self.assertEqual(manager.verify(), [])
 
     def test_multi_snapshot_description_is_shared_and_updatable(self) -> None:
@@ -247,13 +255,13 @@ class MultiDiskChainTests(unittest.TestCase):
         manager = self._create()
         manager.snapshot("one")
         manager.snapshot("two")
-        manager.revert("0002")
-        manager.delete("0003", force=True)
+        manager.revert("0001")
+        manager.delete("0002")
         chain = manager.load()
-        self.assertEqual(chain.active_set(), "0002")
+        self.assertEqual(chain.active_set(), "0004")
         for target in ("sda", "sdc"):
             self.assertFalse(
-                (self.chain_dir / f"disk-{target}-0003.qcow2").exists()
+                (self.chain_dir / f"disk-{target}-0002.qcow2").exists()
             )
         self.assertEqual(manager.verify(), [])
 

@@ -110,9 +110,58 @@ def _other_device_entry(
         detail = element.findtext("name", "")
     elif tag == "vsock":
         detail = element.get("model", "")
+    elif tag == "hostdev":
+        hostdev_type = element.get("type", "")
+        if hostdev_type == "usb":
+            detail = "usb"
+        else:
+            detail = f"{hostdev_type} passthrough (read-only)"
+        source = element.find("source")
+        address = source.find("address") if source is not None else None
+        if address is not None:
+            detail += (
+                f" {address.get('domain', '')}:{address.get('bus', '')}:"
+                f"{address.get('slot', '')}.{address.get('function', '0')}"
+            )
     else:
         detail = element.get("type", "") or element.get("model", "")
     return {"type": tag, "detail": detail.strip() or tag}
+
+
+def passthrough_devices(xml: str) -> list[dict[str, str]]:
+    """Return host devices v-EMU does not manage.
+
+    USB hostdevs are deliberately excluded because USB passthrough is a
+    supported v-EMU feature. PCI/VFIO, mediated devices, SCSI host adapters
+    and SR-IOV interfaces depend on host drivers, IOMMU groups and reset
+    behaviour that v-EMU cannot control, so domains using them are treated as
+    External/read-only.
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return []
+    devices: list[dict[str, str]] = []
+    for hostdev in root.findall("./devices/hostdev"):
+        kind = hostdev.get("type", "")
+        if kind and kind != "usb":
+            devices.append({"kind": kind, "source": "hostdev"})
+    for interface in root.findall("./devices/interface"):
+        if interface.get("type") == "hostdev":
+            devices.append({"kind": "interface", "source": "interface"})
+    return devices
+
+
+def passthrough_summary(xml: str) -> str:
+    """Human-readable passthrough summary, or an empty string."""
+    devices = passthrough_devices(xml)
+    if not devices:
+        return ""
+    counts: dict[str, int] = {}
+    for device in devices:
+        kind = device["kind"]
+        counts[kind] = counts.get(kind, 0) + 1
+    return ", ".join(f"{kind} x{count}" for kind, count in counts.items())
 
 
 def parse_config(xml: str) -> dict[str, Any]:

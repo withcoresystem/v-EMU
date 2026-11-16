@@ -34,6 +34,9 @@ def form_layout(parent: QWidget | None = None) -> QFormLayout:
 
 
 
+from .tooltips import compact_tooltip
+
+
 class InfoBadge(QLabel):
     """Small Clarity-style info/alert badge with a hover tooltip."""
 
@@ -63,7 +66,7 @@ class InfoBadge(QLabel):
             self._kind = kind
         if color is not None:
             self._color = color
-        self.setToolTip(message)
+        self.setToolTip(compact_tooltip(message))
         icon = make_icon(
             getattr(self, "_kind", "info"),
             getattr(self, "_color", "#5f6b6b"),

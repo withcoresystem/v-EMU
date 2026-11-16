@@ -43,22 +43,21 @@ from the vEMU application:
 - Application releases (0.1.x, 0.2.x, …) should stay focused on code fixes and
   roadmap features; they reuse the installed firmware unchanged.
 - If firmware changed, update `firmware/VERSION`, `firmware/SHA256SUMS`,
-  `firmware/README.md`, `docs/FIRMWARE.md` and the firmware/SMBIOS tests in the
-  same change.
+  `firmware/README.md` and the firmware/SMBIOS tests in the same change.
 - Before publishing, verify `sha256sum -c firmware/SHA256SUMS`; this is not a
   reason to rebuild the firmware.
 
 ## 2. Build
 
 ```bash
-./packaging/build-run.sh 0.1.0 dist
+./packaging/build-run.sh 0.2.0 dist
 ```
 
 Outputs:
 
 ```text
-dist/vemu-0.1.0-x86_64.run
-dist/vemu-0.1.0-x86_64.run.sha256
+dist/vemu-0.2.0-x86_64.run
+dist/vemu-0.2.0-x86_64.run.sha256
 ```
 
 The payload includes v-EMU source/runtime files, x64 firmware, noVNC assets,
@@ -69,7 +68,7 @@ guide and build artifacts.
 Verify the payload before publishing:
 
 ```bash
-./dist/vemu-0.1.0-x86_64.run --dry-run
+./dist/vemu-0.2.0-x86_64.run --dry-run
 ```
 
 Check that the bundle contains no `.venv`, tests, archive, private notes or
@@ -81,7 +80,7 @@ fallback).
 Install from the built file, not from the source tree:
 
 1. copy `.run` and `.sha256` to a clean supported VM;
-2. run `sha256sum -c vemu-0.1.0-x86_64.run.sha256`;
+2. run `sha256sum -c vemu-0.2.0-x86_64.run.sha256`;
 3. run the installer and verify:
    - graphical dark installer and terminal fallback;
    - `vemu --version`, `vemu doctor`, `vemud` active/enabled;
@@ -95,15 +94,15 @@ Install from the built file, not from the source tree:
 ## 4. Tag and publish
 
 ```bash
-git tag -a v0.1.0 -m "v-EMU 0.1.0"
+git tag -a v0.2.0 -m "v-EMU 0.2.0"
 git push origin main --tags
 ```
 
-Create a GitHub Release `v0.1.0` and attach:
+Create a GitHub Release `v0.2.0` and attach:
 
 ```text
-vemu-0.1.0-x86_64.run
-vemu-0.1.0-x86_64.run.sha256
+vemu-0.2.0-x86_64.run
+vemu-0.2.0-x86_64.run.sha256
 ```
 
 GitHub supplies the source zip/tar. SHA256 is the published integrity check;

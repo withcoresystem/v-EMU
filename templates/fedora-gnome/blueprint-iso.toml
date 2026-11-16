@@ -1,0 +1,74 @@
+# vEMU desktop template — Fedora 45 GNOME (installer ISO)
+#
+# Build:
+#   image-builder manifest minimal-installer --distro fedora-45 --blueprint blueprint-iso.toml
+#   image-builder build minimal-installer --distro fedora-45 \
+#     --blueprint blueprint-iso.toml --output-dir ./out
+#
+# Edit or delete any block. Optional repo/debloat blocks are commented at the
+# bottom; if you enable a repo, also pass its URL with --extra-repo.
+
+name = "vemu-fedora-gnome-iso"
+description = "Fedora 45 GNOME installer ISO for vEMU labs"
+version = "1.0.0"
+distro = "fedora-45"
+
+[[groups]]
+name = "gnome-desktop"
+
+[[packages]]
+name = "firefox"
+version = "*"
+
+[[packages]]
+name = "openssh-server"
+version = "*"
+
+[[packages]]
+name = "qemu-guest-agent"
+version = "*"
+
+# Fallback for GNOME's U+2236 ratio colon in the clock/display settings.
+[[packages]]
+name = "dejavu-sans-fonts"
+version = "*"
+
+[customizations.timezone]
+timezone = "UTC"
+# ntpservers = ["0.pool.ntp.org", "1.pool.ntp.org"]
+
+[customizations.locale]
+languages = ["en_US.UTF-8"]
+keyboard = "us"
+
+[[customizations.directories]]
+path = "/etc/systemd/system/packagekit.service.d"
+
+[[customizations.files]]
+path = "/etc/systemd/system/packagekit.service.d/10-vemu-timeout.conf"
+data = "[Unit]\nAfter=network-online.target\n\n[Service]\nTimeoutStartSec=180\n"
+mode = "0644"
+
+[[customizations.directories]]
+path = "/etc/skel/.config"
+
+[[customizations.files]]
+path = "/etc/skel/.config/gnome-initial-setup-done"
+data = "done\n"
+mode = "0644"
+
+[[packages]]
+name = "python3"
+version = "*"
+
+[[packages]]
+name = "plymouth"
+version = "*"
+
+[[packages]]
+name = "plymouth-scripts"
+version = "*"
+
+[[packages]]
+name = "plymouth-plugin-two-step"
+version = "*"

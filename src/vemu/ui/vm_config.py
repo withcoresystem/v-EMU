@@ -295,6 +295,16 @@ class VmConfigDialog(VemuDialog):
         )
         state.setObjectName("Muted")
         layout.addWidget(state)
+        if self.payload.get("passthrough"):
+            detail = self.payload.get("passthrough_detail") or "host device"
+            warning = QLabel(
+                f"Host passthrough ({detail}) makes this VM read-only in "
+                "v-EMU. Remove the hostdev from the libvirt XML with "
+                "`virsh edit` to manage its hardware here."
+            )
+            warning.setObjectName("Warning")
+            warning.setWordWrap(True)
+            layout.addWidget(warning)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_core_tab(config), "Core")
@@ -324,6 +334,11 @@ class VmConfigDialog(VemuDialog):
         self.save_button = QPushButton("Save hardware")
         self.save_button.setObjectName("PrimaryButton")
         self.save_button.clicked.connect(self._save)
+        if self.payload.get("passthrough"):
+            self.save_button.setEnabled(False)
+            self.save_button.setToolTip(
+                "Host passthrough VMs are read-only in v-EMU."
+            )
         buttons.addWidget(self.save_button)
         layout.addLayout(buttons)
 

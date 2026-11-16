@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__
 from ..errors import VemuError
+from ..external_vnc import find_vncviewer, viewer_install_hint
 from .components import PageHeader, form_layout
 from .tokens import COMPONENT, SPACE
 from .widgets import ComboBox
@@ -32,6 +33,7 @@ class SettingsPage(QWidget):
     sidebar_changed = Signal(bool)
     inspector_changed = Signal(bool)
     mini_console_changed = Signal(bool)
+    console_mode_changed = Signal(str)
     auto_refresh_changed = Signal(bool, int)
 
     def __init__(self, backend, *, dark: bool = True, parent=None) -> None:
@@ -127,6 +129,29 @@ class SettingsPage(QWidget):
         )
         panels_layout.addWidget(self.mini_console_check)
         layout.addWidget(panels)
+
+        console_group = QGroupBox("Console")
+        console_form = form_layout(console_group)
+        self.console_mode_combo = ComboBox()
+        self.console_mode_combo.addItem(
+            "Embedded noVNC (recommended)", "embedded"
+        )
+        self.console_mode_combo.addItem("External TigerVNC", "external")
+        self.console_mode_combo.currentIndexChanged.connect(
+            self._console_mode_selected
+        )
+        console_form.addRow("Graphics console", self.console_mode_combo)
+        self.console_mode_note = QLabel()
+        self.console_mode_note.setObjectName("Muted")
+        self.console_mode_note.setWordWrap(True)
+        console_form.addRow(self.console_mode_note)
+        layout.addWidget(console_group)
+        self._console_external_index = self.console_mode_combo.findData(
+            "external"
+        )
+        self.set_console_mode(
+            str(self._settings.value("ui/console_mode", "embedded"))
+        )
 
         refresh_group = QGroupBox("Refresh")
         refresh_layout = QVBoxLayout(refresh_group)
@@ -305,6 +330,94 @@ class SettingsPage(QWidget):
         self.mini_console_check.blockSignals(True)
         self.mini_console_check.setChecked(enabled)
         self.mini_console_check.blockSignals(False)
+
+    def set_console_mode(self, mode: str) -> None:
+        if mode not in {"embedded", "external"}:
+            mode = "embedded"
+        index = self.console_mode_combo.findData(mode)
+        if index < 0:
+            index = self.console_mode_combo.findData("embedded")
+        self.console_mode_combo.blockSignals(True)
+        self.console_mode_combo.setCurrentIndex(index)
+        self.console_mode_combo.blockSignals(False)
+        self._refresh_console_availability()
+
+    def _refresh_console_availability(self) -> None:
+        viewer = find_vncviewer()
+        item = self.console_mode_combo.model().item(
+            self._console_external_index
+        )
+        if item is not None:
+            item.setEnabled(viewer is not None)
+        if viewer:
+            self.console_mode_note.setText(
+                "External TigerVNC uses the installed vncviewer. vEMU "
+                "console shortcuts and the clipboard bridge are not "
+                "available; use the viewer menu. The mini console preview "
+                "always stays on embedded noVNC. SPICE consoles always open "
+                "in remote-viewer because embedded noVNC cannot display "
+                "SPICE."
+            )
+            self.console_mode_combo.setToolTip(
+                f"TigerVNC vncviewer detected at {viewer}"
+            )
+        else:
+            self.console_mode_note.setText(
+                "External TigerVNC is unavailable. "
+                + viewer_install_hint()
+                + " The mini console preview always stays on embedded noVNC. "
+                "SPICE consoles always open in remote-viewer because "
+                "embedded noVNC cannot display SPICE."
+            )
+            self.console_mode_combo.setToolTip(
+                "Install TigerVNC to enable the external viewer."
+            )
+
+    def _revert_console_mode(self) -> None:
+        index = self.console_mode_combo.findData("embedded")
+        self.console_mode_combo.blockSignals(True)
+        self.console_mode_combo.setCurrentIndex(index)
+        self.console_mode_combo.blockSignals(False)
+
+    def _console_mode_selected(self, _index: int) -> None:
+        mode = str(self.console_mode_combo.currentData() or "embedded")
+        if mode == "external":
+            if find_vncviewer() is None:
+                self._revert_console_mode()
+                QMessageBox.warning(
+                    self,
+                    "External TigerVNC unavailable",
+                    "TigerVNC vncviewer was not found.\n\n"
+                    + viewer_install_hint(),
+                )
+                return
+            if not self._settings.value(
+                "ui/console_external_confirmed", False, type=bool
+            ):
+                answer = QMessageBox.question(
+                    self,
+                    "Use external TigerVNC?",
+                    "External mode opens the VM console in TigerVNC instead "
+                    "of the embedded noVNC window.\n\n"
+                    "• vEMU console shortcuts and the clipboard bridge are "
+                    "not available.\n"
+                    "• Ctrl+Alt+M opens the TigerVNC menu, which can send "
+                    "Ctrl+Alt+Del. Avoid it during OS install or updates.\n"
+                    "• Use VirtioFS (or the embedded console) for guest file "
+                    "exchange.\n\n"
+                    "Use external TigerVNC for new console windows?",
+                    QMessageBox.StandardButton.Yes
+                    | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    self._revert_console_mode()
+                    return
+                self._settings.setValue(
+                    "ui/console_external_confirmed", True
+                )
+        self._settings.setValue("ui/console_mode", mode)
+        self.console_mode_changed.emit(mode)
 
     def _prefer_installed_disk(self, enabled: bool) -> None:
         self._settings.setValue("ui/prefer_installed_disk", bool(enabled))

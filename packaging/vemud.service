@@ -1,8 +1,8 @@
 [Unit]
 Description=v-EMU daemon
 Documentation=https://github.com/withcoresystem/v-EMU
-After=libvirtd.service virtqemud.socket virtnetworkd.service virtstoraged.service
-Wants=virtqemud.socket virtnetworkd.service virtstoraged.service
+After=libvirtd.service virtqemud.socket virtnodedevd.socket virtnetworkd.service virtstoraged.service
+Wants=virtqemud.socket virtnodedevd.socket virtnetworkd.service virtstoraged.service
 
 [Service]
 Type=simple

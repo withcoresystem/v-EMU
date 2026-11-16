@@ -1,15 +1,18 @@
 include README.md
-include GRAPHICS.md
 include MANUAL.md
-include NOTICE
-include DISCLAIMER.md
-include LICENSE
+include BUILDER.md
+include GRAPHICS.md
 include setup.sh
+include contrib/setup-arch.sh
 recursive-include src/vemu/ui/web/novnc *
 recursive-include src/vemu/ui/assets *
 include src/vemu/py.typed
 recursive-include tests *.py
 recursive-include docs *.md
 recursive-include packaging *
+
+include LICENSE
+include NOTICE
+include DISCLAIMER.md
 recursive-include firmware *
 recursive-include examples *

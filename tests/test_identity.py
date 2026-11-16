@@ -133,30 +133,31 @@ class IdentityTests(unittest.TestCase):
         hostname = "dev-leap-16-1"
 
         def fake_run(command, env=None):
-            if command[0] == "virt-customize":
+            if command[0].endswith("guestfish"):
+                return SimpleNamespace(
+                    stdout=(
+                        f"machine-id={machine_id}\n"
+                        "hostname=\n"
+                        f"HOSTNAME={hostname}\n"
+                        "ssh-key=ssh_host_ed25519_key\n"
+                    ),
+                    stderr="",
+                )
+            if command[0].endswith("virt-customize"):
                 return SimpleNamespace(stdout="", stderr="")
             if command[-1] == "/etc/os-release":
                 return SimpleNamespace(stdout="ID=opensuse-leap\n", stderr="")
-            if command[-1] == "/etc/machine-id":
-                return SimpleNamespace(stdout=machine_id, stderr="")
-            if command[-1] == "/etc/hostname":
-                return SimpleNamespace(stdout="", stderr="")
-            if command[-1] == "/etc/HOSTNAME":
-                return SimpleNamespace(stdout=hostname + "\n", stderr="")
-            if command[0] == "virt-ls":
-                return SimpleNamespace(
-                    stdout="ssh_host_ed25519_key\n", stderr=""
-                )
             raise AssertionError(command)
 
         with mock.patch(
-            "vemu.identity._require", return_value="/usr/bin/virt-customize"
+            "vemu.identity._require", side_effect=lambda tool: f"/usr/bin/{tool}"
         ), mock.patch("vemu.identity._run", side_effect=fake_run):
             result = reset_linux(
                 "/tmp/disk.qcow2", hostname, machine_id
             )
         self.assertTrue(result.executed)
         self.assertEqual(result.hostname, hostname)
+        self.assertEqual(result.ssh_host_key, "ssh_host_ed25519_key")
 
     def test_windows_not_supported(self) -> None:
         with self.assertRaises(ValidationError):

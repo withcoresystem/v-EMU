@@ -1,0 +1,242 @@
+# vEMU desktop template — RHEL-like KDE (AlmaLinux 10.2, qcow2)
+#
+# Build:
+#   image-builder manifest qcow2 --distro almalinux-10.2 --blueprint blueprint-iso.toml \
+#     --extra-repo https://repo.almalinux.org/almalinux/10.2/CRB/x86_64/os/ \
+#     --extra-repo https://dl.fedoraproject.org/pub/epel/10/Everything/x86_64/
+#   image-builder build qcow2 --distro almalinux-10.2 \
+#     --blueprint blueprint-iso.toml --output-dir ./out \
+#     --extra-repo https://repo.almalinux.org/almalinux/10.2/CRB/x86_64/os/ \
+#     --extra-repo https://dl.fedoraproject.org/pub/epel/10/Everything/x86_64/
+#
+# For Rocky/CentOS/Oracle, change distro to the matching image-builder name.
+# RHEL itself needs subscription/entitlement and is not a 0.2.0 target.
+#
+# AlmaLinux base does not ship KDE; EPEL and CRB are required. Delete the KDE
+# package list only if you switch to a RHEL-like base that already provides it.
+
+name = "vemu-rhel-like-kde-iso"
+description = "RHEL-like KDE installer ISO for vEMU labs"
+version = "1.0.0"
+distro = "almalinux-10.2"
+
+[[packages]]
+name = "plasma-desktop"
+version = "*"
+
+[[packages]]
+name = "plasma-workspace"
+version = "*"
+
+[[packages]]
+name = "sddm"
+version = "*"
+
+[[packages]]
+name = "sddm-breeze"
+version = "*"
+
+[[packages]]
+name = "sddm-wayland-plasma"
+version = "*"
+
+[[packages]]
+name = "kde-settings"
+version = "*"
+
+[[packages]]
+name = "kde-settings-sddm"
+version = "*"
+
+[[packages]]
+name = "plasma-nm"
+version = "*"
+
+[[packages]]
+name = "plasma-pa"
+version = "*"
+
+[[packages]]
+name = "dolphin"
+version = "*"
+
+[[packages]]
+name = "konsole"
+version = "*"
+
+[[packages]]
+name = "ark"
+version = "*"
+
+[[packages]]
+name = "spectacle"
+version = "*"
+
+[[packages]]
+name = "plasma-integration"
+version = "*"
+
+[[packages]]
+name = "breeze-icon-theme"
+version = "*"
+
+[[packages]]
+name = "plasma-breeze"
+version = "*"
+
+[[packages]]
+name = "kdeplasma-addons"
+version = "*"
+
+[[packages]]
+name = "kde-gtk-config"
+version = "*"
+
+[[packages]]
+name = "kde-cli-tools"
+version = "*"
+
+[[packages]]
+name = "kdesu"
+version = "*"
+
+[[packages]]
+name = "qt6-qtwayland"
+version = "*"
+
+[[packages]]
+name = "firefox"
+version = "*"
+
+[[packages]]
+name = "openssh-server"
+version = "*"
+
+[[packages]]
+name = "qemu-guest-agent"
+version = "*"
+
+# Required for customizations.locale.languages = ["en_US.UTF-8"].
+[[packages]]
+name = "glibc-langpack-en"
+version = "*"
+
+[[packages]]
+name = "almalinux-backgrounds"
+version = "*"
+
+[[packages]]
+name = "plasma-workspace-wallpapers"
+version = "*"
+
+[[packages]]
+name = "qt6-qtimageformats"
+version = "*"
+
+[customizations.timezone]
+timezone = "UTC"
+# ntpservers = ["0.pool.ntp.org", "1.pool.ntp.org"]
+
+[customizations.locale]
+languages = ["en_US.UTF-8"]
+keyboard = "us"
+
+[[customizations.directories]]
+path = "/etc/systemd/system/packagekit.service.d"
+
+[[customizations.files]]
+path = "/etc/systemd/system/packagekit.service.d/10-vemu-timeout.conf"
+data = "[Unit]\nAfter=network-online.target\n\n[Service]\nTimeoutStartSec=180\n"
+mode = "0644"
+
+[[customizations.directories]]
+path = "/etc/sddm.conf.d"
+
+[[customizations.files]]
+path = "/etc/sddm.conf.d/kde_settings.conf"
+data = "[Theme]\nCurrent=breeze\n"
+mode = "0644"
+
+[[customizations.files]]
+path = "/etc/plasma-setup-done"
+data = "Image Builder: Plasma Setup already applied\n"
+mode = "0644"
+
+[[customizations.repositories]]
+id = "vemu-crb"
+name = "AlmaLinux 10.2 CRB"
+baseurls = ["https://repo.almalinux.org/almalinux/10.2/CRB/x86_64/os/"]
+gpgcheck = true
+gpgkeys = ["https://repo.almalinux.org/almalinux/RPM-GPG-KEY-AlmaLinux-10"]
+enabled = true
+
+[[customizations.repositories]]
+id = "epel"
+name = "Extra Packages for Enterprise Linux 10"
+baseurls = ["https://dl.fedoraproject.org/pub/epel/10/Everything/x86_64/"]
+gpgcheck = true
+gpgkeys = ["https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-10"]
+enabled = true
+
+# ---------------------------------------------------------------------------
+# Optional: RPM Fusion Free/Nonfree for EL10
+#
+# Uncomment both repository blocks and add the matching --extra-repo flags:
+#   --extra-repo https://download1.rpmfusion.org/free/el/updates/10/x86_64/
+#   --extra-repo https://download1.rpmfusion.org/nonfree/el/updates/10/x86_64/
+#
+# [[customizations.repositories]]
+# id = "rpmfusion-free"
+# name = "RPM Fusion Free for EL10"
+# baseurls = ["https://download1.rpmfusion.org/free/el/updates/10/x86_64/"]
+# gpgcheck = true
+# gpgkeys = ["https://download1.rpmfusion.org/free/el/RPM-GPG-KEY-rpmfusion-free-el-10"]
+# enabled = true
+#
+# [[customizations.repositories]]
+# id = "rpmfusion-nonfree"
+# name = "RPM Fusion Nonfree for EL10"
+# baseurls = ["https://download1.rpmfusion.org/nonfree/el/updates/10/x86_64/"]
+# gpgcheck = true
+# gpgkeys = ["https://download1.rpmfusion.org/nonfree/el/RPM-GPG-KEY-rpmfusion-nonfree-el-10"]
+# enabled = true
+# ---------------------------------------------------------------------------
+# Optional: firstboot debloat
+#
+# Runs once at first boot, not at build time. Uncomment and edit the list.
+# The image still contains these packages until the first boot finishes.
+#
+# [[customizations.firstboot.scripts]]
+# type = "custom"
+# name = "vemu-debloat"
+# ignore_failure = true
+# contents = """
+# #!/bin/bash
+# set -u
+# LOG=/var/log/vemu-debloat.log
+# exec >>"$LOG" 2>&1
+# Tested on this Alma KDE minimal package set:
+# DEBLOAT="kdeplasma-addons plasma-workspace-wallpapers"
+# REMOVE=""
+# for p in $DEBLOAT; do
+#   rpm -q "$p" >/dev/null 2>&1 && REMOVE="$REMOVE $p"
+# done
+# [ -n "$REMOVE" ] && dnf -y --disablerepo='*' remove $REMOVE || true
+# touch /var/lib/vemu/debloat.done
+# """
+
+[[packages]]
+name = "python3"
+version = "*"
+
+[[packages]]
+name = "plymouth"
+version = "*"
+
+[[packages]]
+name = "plymouth-scripts"
+version = "*"
+
+[[packages]]
+name = "plymouth-plugin-two-step"
+version = "*"

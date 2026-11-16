@@ -103,6 +103,19 @@ use a VirtioFS share instead. Fedora 45, Alma 10.2, Debian 13, Leap 16.1 and
 SLES 16 all needed guest-side changes when tested (agent policy, `wl-clipboard`
 or a Wayland session).
 
+## Keyboard shortcuts
+
+| Scope | Shortcut | Action |
+|---|---|---|
+| App | `Ctrl+1` … `Ctrl+7` | Labs, Templates, Image Builder, Virtual machines, Networks, Storage, Shared folders |
+| App | `Ctrl+8` / `Ctrl+9` | Guide / Doctor |
+| App | `Ctrl+,` | Settings |
+| App | `Ctrl+N` / `Ctrl+R` | New / refresh on the current page |
+| App | `Ctrl+B` / `Ctrl+I` | Toggle sidebar / inspector |
+| App | `Ctrl+Shift+M` / `Ctrl+Shift+K` | Network map / CLI console |
+| Console | `F9` / `Ctrl+Shift+T` | Show or hide toolbar |
+| Console | `Ctrl+Alt+Insert` / `Ctrl+Alt+F` | Send Ctrl+Alt+Del / toggle fullscreen |
+
 ## Limits
 
 Static cloud-init IP requires `--define`; multi-NIC port-forward return routing

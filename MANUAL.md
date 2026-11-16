@@ -55,8 +55,10 @@ After the first install, log out and back in so the new `vemu`, `libvirt` and
 | Official | Fedora 44; Rocky Linux 10.2; RHEL 10.2 (`--standard` + GNOME UI); openSUSE Leap 16.1; Tumbleweed snapshot 20261028; Debian 13 |
 | Best effort | Debian 12 |
 | As-is | Ubuntu/Kubuntu 26.04, Slowroll, Fedora 45+, SLES/SLED, older RHEL/Rocky/Alma, Arch/Kali and unlisted distributions |
+| Experimental | Arch/CachyOS/Omarchy: core only via `contrib/setup-arch.sh`; no Image Builder |
 
 Host support only covers installing/running v-EMU; guest OS support is wider.
+Arch-family notes and limitations: [`docs/ARCH-EXPERIMENTAL.md`](docs/ARCH-EXPERIMENTAL.md).
 The host must provide KVM. Cross-architecture TCG is optional and slow.
 
 ### First checks
@@ -343,6 +345,12 @@ Every domain without v-EMU metadata is **External** and read-only: v-EMU does
 not change its XML, disks or power state. **Rescue start** is a separate,
 confirmed override for a stuck external VM; it does not change the mode.
 
+A VM with PCI, mediated, SCSI-host or SR-IOV passthrough is detected as
+**External (VFIO)** and stays read-only even when it carries Partial/Full
+metadata; v-EMU does not rewrite, clone or migrate host devices. Remove the
+hostdev (for example with `virsh edit`) and refresh to restore the previous
+mode. USB passthrough is not affected.
+
 #### Read-only: look before touching
 
 1. `vemu list` shows all domains, including External ones.
@@ -435,6 +443,18 @@ active layer, parent and size; revert/delete only when the VM is stopped.
 Multi-disk VMs snapshot every disk as one unit. Live snapshots are not part of
 the current scope.
 
+### 4.6 Image Builder
+
+**Image Builder** creates qcow2 lab images and installer ISOs with the upstream
+`image-builder` CLI. The page is enabled on Fedora/RHEL-family hosts only; use
+**Recheck** to refresh host/tool detection.
+
+The qcow2 wizard is Mode → Blueprint → Preflight → Build; the ISO wizard is
+Blueprint → Branding → Firstboot → Preflight → Build. qcow2 output can be
+imported as a template after a successful build. Installer ISO branding,
+firstboot payloads, blueprint rules, package lookup and troubleshooting are
+covered in the dedicated guide: [`BUILDER.md`](BUILDER.md).
+
 ## 5. Networking
 
 ```text
@@ -466,6 +486,15 @@ lists both.
 inspector mini console is a screenshot preview. Clipboard sync is optional;
 see **Clipboard (host ↔ guest)** below for the guest requirements.
 USB passthrough and boot-to-firmware/BIOS menu are in the VM context menu.
+
+**External TigerVNC:** in **Settings → Console** you can switch full console
+windows from embedded noVNC to TigerVNC. Install `tigervnc` (Fedora/RHEL/
+openSUSE) or `tigervnc-viewer` (Debian/Ubuntu); the option stays disabled when
+`vncviewer` is missing. External mode has no vEMU toolbar shortcuts or
+clipboard bridge: use the TigerVNC menu (`Ctrl+Alt+M`) and VirtioFS for guest
+file exchange. The mini console preview always stays embedded. Existing
+windows keep their current mode until closed; new windows use the new mode.
+`vemu console <vm> --open` also launches TigerVNC.
 The native toolbar starts hidden; press `F9` or `Ctrl+Shift+T` to show it.
 Console shortcuts: `Ctrl+Alt+Insert` sends Ctrl+Alt+Del, `Ctrl+Alt+F` toggles
 fullscreen, `Ctrl+Alt+Print` saves a screenshot, and `Ctrl+Alt+V` pastes the
@@ -477,8 +506,8 @@ down inside the guest.
 
 | Area | Shortcut | Action |
 |---|---|---|
-| App | `Ctrl+1` … `Ctrl+6` | Labs, Templates, Virtual machines, Networks, Storage, Shared folders |
-| App | `Ctrl+7` / `Ctrl+8` | Guide / Doctor |
+| App | `Ctrl+1` … `Ctrl+7` | Labs, Templates, Image Builder, Virtual machines, Networks, Storage, Shared folders |
+| App | `Ctrl+8` / `Ctrl+9` | Guide / Doctor |
 | App | `Ctrl+,` | Settings |
 | App | `Ctrl+N` | Add item on the current page |
 | App | `Ctrl+R` | Refresh the current page |
@@ -644,6 +673,7 @@ and the host needs `virtiofsd`.
 | Theme | Dark by default on first run; user light/dark choice is remembered |
 | UI scale | 100 / 125 / 150 / 200%; restart required |
 | Panels | Sidebar, inspector, mini console |
+| Console | Embedded noVNC (default) or external TigerVNC; needs `vncviewer` |
 | Refresh | VM status interval, minimum 30 s |
 | Resource profile | Standard/High/Ultra CPU/IO weights; best-effort, not a quota |
 | Boot order | Installed disk before installer media; auto-eject after reboot |
@@ -695,7 +725,7 @@ and Linux workspaces rather than multi-monitor.
 | Create | `vemu create --name lab-1 --iso <iso> --dest <labs> --os linux` |
 | List | `vemu list` |
 | Start/stop | `vemu start lab-1` · `vemu shutdown lab-1` |
-| Console | `vemu console lab-1` · `vemu console --serial lab-1` |
+| Console | `vemu console lab-1` · `vemu console lab-1 --open` · `vemu console --serial lab-1` |
 | Stats | `vemu stats --domain lab-1` |
 | Seal/clone | `vemu seal ...` · `vemu clone ...` |
 | Template import | `vemu template import --from <qcow2> --dest <templates>` |
@@ -731,6 +761,31 @@ and Linux workspaces rather than multi-monitor.
   open a public issue.
 - v-EMU is provided **as is**, without warranty. You are responsible for
   backups, guest licences and data; see [`DISCLAIMER.md`](DISCLAIMER.md).
+
+### Outbound network access
+
+vEMU has no telemetry, update checker or remote service. It does not keep an
+Internet connection open while idle. `vemud` uses a local Unix socket; VNC,
+noVNC and the serial console are loopback-only.
+
+Connections are made only during explicit actions:
+
+- **OSBuild Catalog:** local `image-builder list`; no Internet.
+- **Image Builder validate/preflight/build:** contacts the target distribution
+  repositories (and any extra repos declared for the build). Preflight reads
+  repository metadata; build downloads packages.
+- **Package/group lookup:** contacts the same repositories on search, group
+  load or validation. Results are cached locally for seven days (packages) or
+  90 days (catalog, repos, groups).
+- **Firstboot URL:** fetched by the installed guest at its first boot, not by
+  the host while building the ISO. USB payloads work offline.
+- **Guest NAT:** the guest can reach the Internet through the host if the
+  network profile is NAT. Use an isolated profile for offline labs.
+
+Package lookup is advisory and does not install anything. Extra repositories
+passed to image-builder with `--extra-repo` are not GPG-checked; only use
+trusted URLs and do not embed credentials in them. Full details and the action
+table are in [`SECURITY.md`](SECURITY.md#runtime-network-access).
 
 ## 11. Support, versions and limits
 

@@ -31,6 +31,7 @@ from .vmconfig import (
     ensure_usb_keyboard,
     find_cdrom,
     parse_capabilities,
+    passthrough_summary,
     promote_installed_disk,
     set_cdrom_media,
 )
@@ -78,6 +79,8 @@ class DomainInfo:
     managed_by: str = "External"
     drift: str = "unknown"
     os_type: str = "generic"
+    passthrough: bool = False
+    passthrough_detail: str = ""
 
 
 def _import_libvirt():
@@ -125,6 +128,49 @@ def parse_vnc_graphics(xml: str) -> dict[str, object]:
         "host": host,
         "port": port_number,
         "websocket": websocket_number,
+        "password": graphics.get("passwd"),
+    }
+
+
+def parse_spice_graphics(xml: str) -> dict[str, object]:
+    """Extract the live SPICE endpoint from a domain XML.
+
+    SPICE has no WebSocket endpoint, so this is intentionally separate from
+    :func:`parse_vnc_graphics`.  The caller chooses an external viewer
+    (remote-viewer) instead of the embedded noVNC console.
+    """
+    root = ET.fromstring(xml)
+    graphics = root.find("./devices/graphics[@type='spice']")
+    if graphics is None:
+        raise NotFound("This domain has no SPICE console.")
+    port = graphics.get("port")
+    if port in {None, "-1"}:
+        raise Conflict(
+            "SPICE ports are not allocated yet. Is the domain running?"
+        )
+    try:
+        port_number = int(port)
+    except (TypeError, ValueError) as exc:
+        raise Conflict(f"Invalid SPICE port in domain XML: {port}") from exc
+    host = graphics.get("listen") or "127.0.0.1"
+    for listen in graphics.findall("listen"):
+        address = listen.get("address")
+        if address:
+            host = address
+            break
+    if host in {"0.0.0.0", "::", "[::]"}:
+        host = "127.0.0.1"
+    tls_port = graphics.get("tls-port")
+    tls_number: int | None = None
+    if tls_port not in {None, "-1"}:
+        try:
+            tls_number = int(tls_port)
+        except (TypeError, ValueError):
+            tls_number = None
+    return {
+        "host": host,
+        "port": port_number,
+        "tls_port": tls_number,
         "password": graphics.get("passwd"),
     }
 
@@ -581,6 +627,15 @@ class LibvirtBackend:
         )
         try:
             info = parse_vnc_graphics(live_xml)
+            kind = "vnc"
+        except NotFound:
+            try:
+                info = parse_spice_graphics(live_xml)
+            except NotFound as exc:
+                raise NotFound(
+                    "This domain has no VNC or SPICE console."
+                ) from exc
+            kind = "spice"
         except Conflict:
             # Older/imported domains may have no websocket attribute at all.
             # Add it to the persistent definition so the next full restart
@@ -595,7 +650,12 @@ class LibvirtBackend:
                     "reboot), then open the console again."
                 ) from None
             raise
-        return {"domain": name, **info, "serial": has_serial}
+        return {
+            "domain": name,
+            "kind": kind,
+            **info,
+            "serial": has_serial,
+        }
 
     def serial_info(self, name: str) -> dict[str, object]:
         domain = self.domain(name)
@@ -1440,6 +1500,13 @@ class LibvirtBackend:
             if old_path is not None and current != old_path:
                 continue
             source.set("file", new_path)
+            # libvirt keeps the old <backingStore> chain in the definition
+            # when only the source path changes. QEMU then opens the stale
+            # parent instead of the real qcow2 backing file, so a snapshot
+            # child could boot an older layer (observed with SS1/SS2). Let
+            # libvirt rediscover the chain from the new image.
+            for backing in list(disk.findall("backingStore")):
+                disk.remove(backing)
             updated = True
             break
         if not updated:
@@ -1476,6 +1543,11 @@ class LibvirtBackend:
             current = source.get("file")
             if current in changes:
                 source.set("file", changes[current])
+                # A changed source means a different overlay/chain. Drop the
+                # old libvirt backing metadata so QEMU follows the real qcow2
+                # header instead of an older layer.
+                for backing in list(disk.findall("backingStore")):
+                    disk.remove(backing)
                 seen.add(current)
         missing = set(changes) - seen
         if missing:
@@ -1766,6 +1838,12 @@ class LibvirtBackend:
             config_xml = domain.XMLDesc(flag)
         except self._libvirt.libvirtError:  # type: ignore[attr-defined]
             config_xml = xml
+        passthrough_detail = passthrough_summary(config_xml)
+        # Host passthrough is never managed by v-EMU. Downgrade the effective
+        # mode without touching the stored metadata, so removing the hostdev
+        # restores the original Partial/Full state on the next refresh.
+        if passthrough_detail:
+            managed_by = "External"
         return DomainInfo(
             os_type=os_type,
             name=domain.name(),
@@ -1776,6 +1854,8 @@ class LibvirtBackend:
             firmware=firmware,
             managed_by=managed_by,
             drift=drift.status(config_xml),
+            passthrough=bool(passthrough_detail),
+            passthrough_detail=passthrough_detail,
         )
 
     def __enter__(self) -> "LibvirtBackend":

@@ -1,0 +1,122 @@
+name = "vemu-rhel-10.3-gnome"
+description = "RHEL 10.3 GNOME server for vEMU labs and RHCSA/RHCE practice"
+version = "1.0.0"
+distro = "rhel-10.3"
+
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = 12884901888
+
+[[groups]]
+name = "graphical-server-environment"
+
+[[packages]]
+name = "qemu-guest-agent"
+version = "*"
+
+[[packages]]
+name = "glibc-langpack-en"
+version = "*"
+
+[[packages]]
+name = "dejavu-sans-fonts"
+version = "*"
+
+[[packages]]
+name = "ansible-core"
+version = "*"
+
+[[packages]]
+name = "git"
+version = "*"
+
+[[packages]]
+name = "vim-enhanced"
+version = "*"
+
+[[packages]]
+name = "bash-completion"
+version = "*"
+
+[[packages]]
+name = "rsync"
+version = "*"
+
+[[packages]]
+name = "tar"
+version = "*"
+
+[[packages]]
+name = "bzip2"
+version = "*"
+
+[[packages]]
+name = "xz"
+version = "*"
+
+[[packages]]
+name = "nfs-utils"
+version = "*"
+
+[[packages]]
+name = "autofs"
+version = "*"
+
+[[packages]]
+name = "lvm2"
+version = "*"
+
+[[packages]]
+name = "policycoreutils-python-utils"
+version = "*"
+
+[[packages]]
+name = "setools-console"
+version = "*"
+
+[customizations]
+hostname = "vemu-rhel-10.3-gnome"
+
+[customizations.timezone]
+timezone = "UTC"
+
+[customizations.locale]
+languages = ["en_US.UTF-8"]
+keyboard = "us"
+
+[customizations.services]
+enabled = ["sshd", "qemu-guest-agent", "gdm", "vemu-graphical-default.service"]
+
+[customizations.kernel]
+append = "systemd.unit=graphical.target"
+
+[[customizations.directories]]
+path = "/etc/systemd/system/packagekit.service.d"
+
+[[customizations.files]]
+path = "/etc/systemd/system/packagekit.service.d/10-vemu-timeout.conf"
+data = "[Unit]\nAfter=network-online.target\n\n[Service]\nTimeoutStartSec=180\n"
+mode = "0644"
+
+[[customizations.user]]
+name = "lab"
+password = "$6$PV5Tnck0Y5T/B.2J$vUWY6meG9.7xZa20THF.WoRxxCaXQLo0v.o6KW/QVbZ789jUJQ9rAftqr5dM/E186Up3x8rEKjqqqR/T9GPMt."
+groups = ["wheel"]
+
+[[customizations.directories]]
+path = "/etc/skel/.config"
+
+[[customizations.files]]
+path = "/etc/skel/.config/gnome-initial-setup-done"
+data = "done\n"
+mode = "0644"
+
+[[customizations.files]]
+path = "/etc/NetworkManager/system-connections/vemu-ethernet.nmconnection"
+data = "[connection]\nid=vemu-ethernet\ntype=ethernet\nautoconnect=true\n\n[ipv4]\nmethod=auto\n\n[ipv6]\nmethod=auto\n"
+mode = "0600"
+
+[[customizations.files]]
+path = "/etc/systemd/system/vemu-graphical-default.service"
+data = "[Unit]\nDescription=Persist the vEMU graphical default target\nConditionPathExists=!/var/lib/vemu/graphical-default.done\nAfter=local-fs.target\n\n[Service]\nType=oneshot\nStateDirectory=vemu\nExecStart=/usr/bin/systemctl set-default graphical.target\nExecStart=/usr/bin/touch /var/lib/vemu/graphical-default.done\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n"
+mode = "0644"

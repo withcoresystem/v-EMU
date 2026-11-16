@@ -24,6 +24,16 @@ HELP_TOPICS: dict[str, tuple[str, str]] = {
         "<p>Use <b>Edit metadata</b> to fix guest OS family or Sysprep "
         "metadata. <b>Ctrl+N</b> starts an import.</p>",
     ),
+    "Image Builder": (
+        "Image Builder",
+        "<p>Build qcow2 lab images or installer ISOs from native "
+        "image-builder blueprints. Import a blueprint, choose a target, run "
+        "preflight, then build.</p>"
+        "<p><b>Images</b> manages built artifacts; <b>Blueprints</b> manages "
+        "imported blueprint files. qcow2 can be exported as a template; an "
+        "ISO remains a user-owned file.</p>"
+        "<p><b>Ctrl+N</b> starts a new build; <b>Ctrl+R</b> refreshes.</p>",
+    ),
     "Networks": (
         "Networks",
         "<p>Create NAT, isolated or bridge profiles, then press <b>Apply</b> "

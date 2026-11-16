@@ -105,7 +105,7 @@ Lab ── lab.yaml + N clones + networks
 | Template | Immutable base for linked clones | Templates |
 | Clone | Small overlay on a template base | Templates / Clone |
 | Lab | Declarative group of VMs and networks | Labs |
-| Storage | Registered `labs`, `templates` or `isos` roots | Storage |
+| Storage | Registered `labs`, `templates`, `isos` or `images` roots | Storage |
 | Network profile | NAT/isolated/bridge switch definition | Networks |
 
 ## 4. Lab-first workflows
@@ -159,6 +159,12 @@ vemu clone --template /home/VM/vemu-templates/fedora-cloud \
   --network nat --cloud-init --ci-user lab \
   --ci-ssh-key ~/.ssh/id_ed25519.pub --ci-package vim
 ```
+
+The linked overlay is created instantly (a few hundred KiB). Linux identity
+reset boots a libguestfs appliance and adds roughly 15-30 seconds per clone;
+uncheck **Reset hostname, machine-id and SSH host keys** in the clone dialog
+(or pass `--no-identity-reset`) when cloud-init or another mechanism owns the
+identity.
 
 Immutable images (CoreOS, Silverblue, MicroOS, Flatcar, NixOS, Ubuntu Core)
 skip offline identity reset; use Ignition/cloud-init for first boot.
@@ -248,8 +254,11 @@ already exists in libvirt. Choose how far to go, per VM:
 | Partial | `vemu adopt --domain NAME --mode partial --yes` | stay in place | start/stop, hardware, ISO/NIC |
 | Full | `vemu migrate --domain NAME --mode full` | copied to a v-EMU chain | snapshots, clone/seal |
 
-External domains are read-only by default. Partial adoption requires the VM to
-be stopped and writes only the XML; roll back with the saved XML if needed.
+External domains are read-only by default. A VM with PCI/mediated/SCSI/SR-IOV
+passthrough is shown as **External (VFIO)** and stays read-only even with
+Partial/Full metadata; remove the hostdev to restore the previous mode. USB
+passthrough is unaffected. Partial adoption requires the VM to be stopped and
+writes only the XML; roll back with the saved XML if needed.
 Full migration keeps the domain UUID, NVRAM, TPM and Secure Boot loader, copies
 the disks into `labs/<name>/`, and keeps the old disks. Run
 `vemu migrate --domain NAME --mode full --dry-run` first.
@@ -260,10 +269,14 @@ keys, note MAC/IP/hostdevs, and keep the XML backup until the VM passes checks.
 
 ### 4.5 Snapshots
 
-Snapshots are offline by default and create a new chain layer. The UI shows the
-active layer, parent and size; revert/delete only when the VM is stopped.
-Multi-disk VMs snapshot every disk as one unit. Live snapshots are not part of
-the current scope.
+Snapshots are offline by default. Taking one freezes the current layer and
+continues the VM on a new **Current** layer, so the snapshot is never written
+to; give each snapshot a name. Reverting discards the current layer and starts a new one on the selected
+snapshot; delete a snapshot to merge it back into its child. The UI shows the
+tree with labels, parent and size; revert/delete are available only when the VM
+is stopped, and never on the Current layer. Multi-disk VMs snapshot every disk
+as one unit. Live snapshots are not part of the current scope. Chains created
+before the new snapshot model are labelled legacy and keep the old behaviour.
 
 ## 5. Networking
 
@@ -299,6 +312,22 @@ console is a screenshot preview. USB passthrough and the firmware/BIOS menu are
 in the VM context menu. If a USB device was unplugged, vEMU marks it **Missing**
 so you can detach it; starting a VM removes missing USB entries and shows a
 warning instead of blocking the start.
+
+**External TigerVNC:** **Settings → Console** can switch full console windows
+from embedded noVNC to TigerVNC. Install `tigervnc` (Fedora/RHEL/openSUSE) or
+`tigervnc-viewer` (Debian/Ubuntu); the option stays disabled when `vncviewer`
+is missing. External mode has no vEMU shortcuts or clipboard bridge: use the
+TigerVNC menu (`Ctrl+Alt+M`) and VirtioFS for files. The mini console preview
+stays embedded. Existing windows keep their mode until closed; new windows use
+the new mode. `vemu console <vm> --open` also launches TigerVNC.
+
+**SPICE consoles:** a VM with a SPICE graphics device (experimental 3D/virtio-gpu
+setups) cannot use embedded noVNC. vEMU opens it with `remote-viewer` instead,
+using `--shared --auto-resize=never --spice-disable-usbredir
+--spice-disable-audio`. Install `virt-viewer` (the package that provides
+`remote-viewer`). `vemu console <vm> --open` follows the same path; the viewer
+log is `~/.local/state/vemu/spice-viewer-<vm>.log`. This is not a new supported
+console mode: VNC VMs keep the embedded/TigerVNC choice above.
 
 The native toolbar starts hidden so the guest fills the window; press `F9` or
 `Ctrl+Shift+T` to show it. The console **Power** menu keeps only **Start** and
@@ -353,14 +382,15 @@ needs no guest agent and provides two-way file exchange.
 
 | Area | Shortcut | Action |
 |---|---|---|
-| App | `Ctrl+1` … `Ctrl+6` | Labs, Templates, Virtual machines, Networks, Storage, Shared folders |
-| App | `Ctrl+7` / `Ctrl+8` | Guide / Doctor |
+| App | `Ctrl+1` … `Ctrl+7` | Labs, Templates, Image Builder, Virtual machines, Networks, Storage, Shared folders |
+| App | `Ctrl+8` / `Ctrl+9` | Guide / Doctor |
 | App | `Ctrl+,` | Settings |
 | App | `Ctrl+N` | Add item on the current page |
 | App | `Ctrl+R` | Refresh the current page |
 | App | `Ctrl+B` / `Ctrl+I` | Toggle sidebar / inspector |
 | App | `Ctrl+Shift+M` | Network map |
 | App | `Ctrl+Shift+K` | CLI console |
+| App | `Ctrl+Q` | Quit v-EMU |
 | App | `F1` | Help for the current page |
 | Console | `F9` or `Ctrl+Shift+T` | Show/hide the toolbar |
 | Console | `Ctrl+Alt+Insert` | Send Ctrl+Alt+Del |
@@ -419,6 +449,7 @@ sync is blocked. Verified with a Fedora 45 guest.
 | Theme | Dark by default on first run; user light/dark choice is remembered |
 | UI scale | 100 / 125 / 150 / 200%; restart required |
 | Panels | Sidebar, inspector, mini console |
+| Console | Embedded noVNC (default) or external TigerVNC; needs `vncviewer`. SPICE consoles use `remote-viewer` (`virt-viewer` package). |
 | Refresh | VM status interval, minimum 30 s |
 | Resource profile | Standard/High/Ultra CPU/IO weights; best-effort, not a quota |
 | Boot order | Installed disk before installer media; auto-eject after reboot |
@@ -456,7 +487,9 @@ vemu list
 ```
 
 Known limits: TCG is slow; live snapshots and 3D/GL are not planned for
-0.1/0.2; Windows 3D on virtio-gpu is not supported; Linux clipboard needs
+0.1/0.2; Windows 3D on virtio-gpu is not a supported feature and remains a
+private lab experiment, not a 0.3.0 commitment or support for PCIe/VFIO or
+commercial vGPU; Linux clipboard needs
 Wayland, `wl-clipboard` and QGA `guest-exec` (X11 is out of scope), so guests
 that block `guest-exec` must use a VirtioFS share; 125%
 does not fit a 1440×900 display; v-EMU is
@@ -471,13 +504,137 @@ Kubernetes tooling.
 | Create | `vemu create --name lab-1 --iso <iso> --dest <labs> --os linux` |
 | List | `vemu list` |
 | Start/stop | `vemu start lab-1` · `vemu shutdown lab-1` |
-| Console | `vemu console lab-1` · `vemu console --serial lab-1` |
+| Console | `vemu console lab-1` · `vemu console lab-1 --open` · `vemu console --serial lab-1` |
 | Stats | `vemu stats --domain lab-1` |
 | Seal/clone | `vemu seal ...` · `vemu clone ...` |
 | Template import | `vemu template import --from <qcow2> --dest <templates>` |
 | Lab | `vemu up/status/down lab.yaml` |
 | Lab bundle | `vemu lab export/import ...` |
+| Snapshot | `vemu snapshot create --domain <vm> --label <name>` · `vemu snapshot list --domain <vm>` · `vemu snapshot revert --domain <vm> --layer <id>` |
 | Network | `vemu network list` · `vemu network leases --network <profile>` |
 | Storage | `vemu storage list` · `vemu storage inspect --path <path>` |
 | Health | `vemu doctor` |
 | Garbage | `vemu gc <labs>` |
+
+## 12. Image Builder
+
+**New qcow2 build** creates a lab disk image; **New ISO build** creates an
+installer ISO from an `*-iso.toml` blueprint. The ISO wizard has five steps:
+Blueprint, Branding, Firstboot, Preflight, Build. The qcow2 wizard keeps its
+four-step flow and hides ISO blueprints.
+
+This section covers the ISO branding/firstboot layer. Full qcow2/ISO flows,
+blueprint rules, asset standards, package lookup and troubleshooting are in
+`BUILDER.md` in the source tree.
+
+### 12.1 What is branded
+
+- **Anaconda:** sidebar colour, logo, header accent and product title.
+- **GRUB:** menu entry titles and timeout; the default entry is preserved.
+- **Installed system:** Plymouth boot screen with the logo, the fixed credit
+  `Powered by v-EMU` and a spinner; boot logs stay hidden.
+- **Optional first-boot TUI** for site setup scripts.
+
+The base boot chain and Secure Boot signatures are not modified. Branding is
+supported on Fedora and RHEL-like ISOs only.
+
+### 12.2 Branding rules
+
+| Field | Rule |
+|---|---|
+| Product name | Short; Anaconda shows it uppercase with `INSTALLATION` appended |
+| Product version | Short text, for example `0.2` |
+| Sidebar HEX | `#RRGGBB`, dark enough for light text |
+| Accent HEX | `#RRGGBB`; used for the header and the spinner base |
+| GRUB title | One line, for example `Install vEMU Lab` |
+| Logo SVG | Valid `<svg>` XML, at most 512 KiB |
+
+Logo guidance: transparent background, square or slightly wide artwork, low
+detail. The same SVG is fitted to `150x69` for the installer sidebar and
+`280x240` for the boot screen; v-EMU never recolours it. Check the contrast
+against both the sidebar colour and the dark boot gradient. Avoid text inside
+the SVG: the product name is set by Anaconda and the boot credit is fixed.
+
+The boot screen does not show the product name or version. The GRUB timeout
+defaults to 15 seconds and is not editable in the wizard.
+
+### 12.3 Blueprint requirements
+
+Use the `blueprint-iso.toml` variant. Keep `python3` when the first-boot TUI is
+enabled, and keep `plymouth`, `plymouth-scripts` and
+`plymouth-plugin-two-step` for the boot screen. Do not add a fixed user,
+hostname, filesystem layout or kernel arguments; Anaconda asks for the
+destination and user at install time.
+
+### 12.4 First-boot TUI
+
+The TUI runs once, as root, on `tty2` before the display manager. Sources:
+
+- **USB:** a vfat stick labelled `VEMU-FBOOT` with
+  `vemu-firstboot/run.sh` (or `manifest.toml`).
+- **HTTP(S):** a URL to a script or a `.tar`/`.tar.gz` archive.
+
+An optional `manifest.toml` sets `run = "setup.sh"` and a `timeout` in seconds.
+The script runs non-interactively from the payload directory; exit `0` means
+success. The result is shown in the TUI and logged to
+`/var/log/vemu-firstboot.log`.
+
+The ISO wizard can also bake an automatic payload: **Script name** and
+**Script URL**. Both empty keeps the menu. With a name only, the TUI looks for
+that file on the `VEMU-FBOOT` USB stick; with a URL only it downloads the file;
+with a base URL ending `/` plus a name it fetches `<url>/<name>`. A successful
+automatic run restarts after a 10-second countdown; a failure returns to the
+menu. Use a fixed name and change the script on the server when possible, so
+the ISO does not need a rebuild.
+
+Payload rules: be idempotent, fail loudly on errors, print one line per step,
+do not reboot or power off, and do not rely on a login session. The payload runs
+as root and the USB/URL is trusted input; use HTTPS. The URL is fetched by the
+installed guest at first boot, not by vEMU while building the ISO; the host does
+not contact it.
+
+### 12.5 Package and group lookup
+
+The Image Builder host row has **Package lookup** next to **OSBuild Catalog**.
+Choose the target distro and architecture, then:
+
+- search packages by name or glob (`inkscape`, `kde*`, `*fonts*`), or combine
+  several terms with commas (`inkscape, gimp, *fonts*`);
+- load the package groups from the target repositories and filter them with
+  comma-separated terms; enable **Show hidden groups** to include groups the
+  distribution hides by default (Fedora 45: 49 → 155 groups);
+- validate a selected group and see how many packages it resolves to;
+- right-click a package or group row to copy its name, ID, version or the
+  whole row;
+- optionally add extra repository URLs (for example CRB or EPEL) for the
+  lookup only.
+
+Lookup is read-only and never installs or builds anything. The first query for
+a target prepares repository metadata and can take a few seconds; later
+queries use the local SQLite cache. **Refresh metadata** clears the cache for
+the current target. Package results are cached for seven days; catalog, group
+and repository data for 90 days. Blueprints are still validated by the full
+`image-builder manifest` preflight before a build.
+
+Lookup contacts the target repositories only while a search, group load or
+validation runs; cached queries do not need the network. The cache is a local
+copy of repository metadata and is safe to delete. vEMU has no telemetry or
+update service, and no connection stays open while the app is idle. Extra
+repositories are not GPG-checked by image-builder: use only trusted URLs and do
+not put credentials in them. See `SECURITY.md` in the source tree for the full
+runtime-network table.
+
+### 12.6 Verify a build
+
+- Anaconda shows the branded sidebar, logo, title and header colour.
+- GRUB shows the branded entries, default entry first, configured timeout.
+- Installed system: logo, credit and spinner on boot; no boot logs.
+- `cat /proc/cmdline` contains `rhgb quiet systemd.show_status=no
+  vt.global_cursor_default=0 plymouth.graphical bgrt_disable`.
+- `sudo lsinitrd /boot/initramfs-*.img | grep themes/vemu` lists the theme.
+- Firstboot: USB and URL sources, retries, logs, and removal after success or
+  a confirmed quit.
+- Secure Boot remains enabled.
+
+The full reference, including troubleshooting, is in
+`docs/BUILDER-BRANDING.md` in the source tree.

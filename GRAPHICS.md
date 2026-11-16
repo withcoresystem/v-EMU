@@ -5,6 +5,11 @@ lifecycle choice: it is available in every installer, needs no guest driver and
 resumes reliably. The trade-off is a slower noVNC console than QXL or
 virtio-gpu.
 
+**Windows 3D acceleration is not covered by this page.** It remains a private
+lab experiment with test signing, Secure Boot off and a SPICE-only console; it
+is not part of 0.2.0, not a 0.3.0 commitment, and not support for PCIe/VFIO
+passthrough or commercial vGPU.
+
 There is no single video model that is best for every guest. Choose manually in
 the VM's **Hardware** editor according to the table below.
 
@@ -151,7 +156,7 @@ After changing the video model:
 
 - vEMU cannot control Linux s2idle through the domain XML or firmware. S3 can
   be blocked, but the guest kernel still offers s2idle.
-- QXL is a legacy paravirtual device. It is supported by vEMU 0.1.x but is not
+- QXL is a legacy paravirtual device. It is supported by vEMU 0.1.x/0.2.x but is not
   the default because it is not universal. Its 1024×768 boot mode is not a
   permanent limit: change it once in the guest and the setting persists.
 - The wizard default, VGA, is chosen for lifecycle safety, not for console

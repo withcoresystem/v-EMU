@@ -151,7 +151,7 @@ class DaemonTests(unittest.TestCase):
         layer = self.client.call(
             "chain.snapshot", {"chain": str(self.chain_dir), "label": "s1"}
         )
-        self.assertEqual(layer["id"], "0002")
+        self.assertEqual(layer["id"], "0001")
 
         verify = self.client.call("chain.verify", {"chain": str(self.chain_dir)})
         self.assertTrue(verify["ok"], verify["issues"])
@@ -161,12 +161,17 @@ class DaemonTests(unittest.TestCase):
         )
         self.assertEqual(reverted["id"], "0001")
 
-        deleted = self.client.call(
-            "chain.delete", {"chain": str(self.chain_dir), "layer": "0002"}
+        second = self.client.call(
+            "chain.snapshot", {"chain": str(self.chain_dir), "label": "s2"}
         )
-        self.assertEqual(deleted["deleted"], "0002")
+        self.assertEqual(second["id"], "0003")
+
+        deleted = self.client.call(
+            "chain.delete", {"chain": str(self.chain_dir), "layer": "0003"}
+        )
+        self.assertEqual(deleted["deleted"], "0003")
         self.assertEqual(
-            len(ChainManager(self.chain_dir).load().layers), 1
+            len(ChainManager(self.chain_dir).load().layers), 2
         )
 
     def test_clone_create_without_libvirt(self) -> None:

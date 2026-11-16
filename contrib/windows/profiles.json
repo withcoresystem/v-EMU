@@ -1,0 +1,1190 @@
+{
+  "schemaVersion": 1,
+  "license": "GPL-3.0-or-later",
+  "description": "v-EMU Windows guest optimization profiles. Inspired by VDI practice; no Omnissa code or templates are bundled.",
+  "protected": {
+    "services": [
+      "QEMU-GA",
+      "vgpusrv",
+      "VioGpuSrv",
+      "VioGpuDod",
+      "VioGpu3D",
+      "BalloonService",
+      "WinFsp",
+      "viofs",
+      "VirtioFsSvc",
+      "vioserial",
+      "sshd",
+      "RpcSs",
+      "DcomLaunch",
+      "RpcEptMapper",
+      "PlugPlay",
+      "DeviceInstall",
+      "Schedule",
+      "Winmgmt",
+      "EventLog",
+      "ProfSvc",
+      "Themes",
+      "UserManager",
+      "StateRepository",
+      "BrokerInfrastructure",
+      "Power",
+      "LSM",
+      "SamSs",
+      "CryptSvc",
+      "BFE",
+      "mpssvc",
+      "WinDefend",
+      "SecurityHealthService",
+      "wuauserv",
+      "UsoSvc",
+      "WaaSMedicSvc",
+      "BDESVC",
+      "Audiosrv",
+      "AudioEndpointBuilder",
+      "Spooler",
+      "TermService",
+      "LanmanServer",
+      "LanmanWorkstation",
+      "Dnscache",
+      "Dhcp",
+      "NlaSvc",
+      "netprofm",
+      "nsi",
+      "iphlpsvc",
+      "Wcmsvc",
+      "WpnService",
+      "CDPSvc",
+      "ShellHWDetection",
+      "StorSvc",
+      "AppXSvc",
+      "ClipSVC",
+      "LicenseManager",
+      "TokenBroker",
+      "TextInputManagementService",
+      "DispBrokerDesktopSvc",
+      "CoreMessagingRegistrar",
+      "FontCache",
+      "SystemEventsBroker",
+      "TimeBrokerSvc",
+      "SENS"
+    ],
+    "patterns": [
+      "VioGpu*",
+      "USB*",
+      "Spice*",
+      "vioserial*",
+      "Virtio*",
+      "WinFsp*",
+      "viofs*",
+      "WpnUserService*",
+      "CDPUserSvc*"
+    ]
+  },
+  "common": {
+    "services": [
+      "DiagTrack",
+      "dmwappushservice",
+      "WerSvc",
+      "TrkWks",
+      "DPS",
+      "diagnosticshub.standardcollector.service",
+      "RmSvc",
+      "RetailDemo",
+      "SEMgrSvc",
+      "icssvc",
+      "DusmSvc"
+    ],
+    "tasks": [
+      {
+        "path": "\\Microsoft\\Windows\\Application Experience\\",
+        "name": "Microsoft Compatibility Appraiser"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Application Experience\\",
+        "name": "ProgramDataUpdater"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Application Experience\\",
+        "name": "StartupAppTask"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Application Experience\\",
+        "name": "PcaPatchDBTask"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Customer Experience Improvement Program\\",
+        "name": "Consolidator"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Customer Experience Improvement Program\\",
+        "name": "Kernel"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Customer Experience Improvement Program\\",
+        "name": "UsbCeip"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Windows Error Reporting\\",
+        "name": "QueueReporting"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Feedback\\Siuf\\",
+        "name": "DmClient"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\DiskDiagnostic\\",
+        "name": "Microsoft-Windows-DiskDiagnosticDataCollector"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Maintenance\\",
+        "name": "WinSAT"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Maps\\",
+        "name": "MapsToastTask"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Power Efficiency Diagnostics\\",
+        "name": "AnalyzeSystem"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\DiskFootprint\\",
+        "name": "Diagnostics"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\DiskFootprint\\",
+        "name": "StorageSense"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Defrag\\",
+        "name": "ScheduledDefrag"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Chkdsk\\",
+        "name": "ProactiveScan"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\WDI\\",
+        "name": "ResolutionHost"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Autochk\\",
+        "name": "Proxy"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Windows Media Sharing\\",
+        "name": "UpdateLibrary"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Work Folders\\",
+        "name": "Work Folders Maintenance Work"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Shell\\",
+        "name": "FamilySafetyMonitor"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Shell\\",
+        "name": "FamilySafetyRefreshTask"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\LanguageComponentsInstaller\\",
+        "name": "ReconcileLanguageResources"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Speech\\",
+        "name": "SpeechModelDownloadTask"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Flighting\\OneSettings\\",
+        "name": "RefreshCache"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Flighting\\FeatureConfig\\",
+        "name": "ReconcileFeatures"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\PI\\",
+        "name": "Sqm-Tasks"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\ApplicationData\\",
+        "name": "appuriverifierdaily"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\ApplicationData\\",
+        "name": "DsSvcCleanup"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Diagnosis\\",
+        "name": "RecommendedTroubleshootingScanner"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Diagnosis\\",
+        "name": "Scheduled"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\MemoryDiagnostic\\",
+        "name": "ProcessMemoryDiagnosticEvents"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\MemoryDiagnostic\\",
+        "name": "RunFullMemoryDiagnostic"
+      },
+      {
+        "path": "\\Microsoft\\XblGameSave\\",
+        "name": "XblGameSaveTask"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\SpacePort\\",
+        "name": "SpaceAgentTask"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\SpacePort\\",
+        "name": "SpaceManagerTask"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\FileHistory\\",
+        "name": "File History (maintenance mode)"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Location\\",
+        "name": "WindowsActionDialog"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Data Integrity Scan\\",
+        "name": "Data Integrity Scan"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\Data Integrity Scan\\",
+        "name": "Data Integrity Check And Scan"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\WOF\\",
+        "name": "WIM-Hash-Management"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\WOF\\",
+        "name": "WIM-Hash-Validation"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\BrokerInfrastructure\\",
+        "name": "BgTaskRegistrationMaintenanceTask"
+      },
+      {
+        "path": "\\Microsoft\\Windows\\StateRepository\\",
+        "name": "MaintenanceTasks"
+      }
+    ],
+    "hklm": [
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+        "name": "AllowTelemetry",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+        "name": "DoNotShowFeedbackNotifications",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+        "name": "LimitEnhancedDiagnosticDataWindowsAnalytics",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\SQMClient\\Windows",
+        "name": "CEIPEnable",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppCompat",
+        "name": "AITEnable",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppCompat",
+        "name": "DisableInventory",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+        "name": "DisableWindowsConsumerFeatures",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+        "name": "DisableSoftLanding",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+        "name": "DisableTailoredExperiencesWithDiagnosticData",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo",
+        "name": "DisabledByGroupPolicy",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\FindMyDevice",
+        "name": "AllowFindMyDevice",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Settings\\FindMyDevice",
+        "name": "LocationSyncEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Error Reporting",
+        "name": "Disabled",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Error Reporting",
+        "name": "DontSendAdditionalData",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Error Reporting",
+        "name": "AutoApproveOSDumps",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\PCHealth\\ErrorReporting",
+        "name": "DoReport",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\TabletPC",
+        "name": "PreventHandwritingDataSharing",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\HandwritingErrorReports",
+        "name": "PreventHandwritingErrorReports",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\InputPersonalization",
+        "name": "RestrictImplicitTextCollection",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\InputPersonalization",
+        "name": "RestrictImplicitInkCollection",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\TextInput",
+        "name": "AllowLinguisticDataCollection",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\OOBE",
+        "name": "DisablePrivacyExperience",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "name": "DisplayLastLogonInfo",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "name": "DisableAutomaticRestartSignOn",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WDI\\{3af8b24a-c441-4fa4-8c5c-bed591bfa867}",
+        "name": "ScenarioExecutionEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WDI\\{2698178D-FDAD-40AE-9D3C-1371703ADC5B}",
+        "name": "ScenarioExecutionEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WDI\\{ffc42108-4920-4acf-a4fc-8abdcc68ada4}",
+        "name": "ScenarioExecutionEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WDI\\{186f47ef-626c-4670-800a-4a30756babad}",
+        "name": "ScenarioExecutionEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WDI\\{eb73b633-3f4e-4ba0-8f60-8f3c6f53168f}",
+        "name": "ScenarioExecutionEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WDI\\{86432a0b-3c7d-4ddf-a89c-172faa90485d}",
+        "name": "ScenarioExecutionEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WDI\\{67144949-5132-4859-8036-a737b43825d8}",
+        "name": "ScenarioExecutionEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\ScheduledDiagnostics",
+        "name": "EnabledExecution",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Reliability Analysis\\WMI",
+        "name": "WMIEnable",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "AllowOnlineTips",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoWelcomeScreen",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoNewAppAlert",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoAutorun",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoDriveTypeAutoRun",
+        "type": "REG_DWORD",
+        "data": "255"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoWebServices",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoInternetOpenWith",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoOnlinePrintsWizard",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoPublishingWizard",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "TurnOffSPIAnimations",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Feeds",
+        "name": "EnableFeeds",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DWM",
+        "name": "DisallowFlip3d",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DWM",
+        "name": "DisallowAnimations",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+        "name": "NoLockScreen",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+        "name": "LockScreenOverlaysDisabled",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\EdgeUI",
+        "name": "DisableHelpSticker",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+        "name": "NoWindowMinimizingShortcuts",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+        "name": "AllowCortana",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+        "name": "AllowCortanaAboveLock",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+        "name": "EnableDynamicContentInWSB",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+        "name": "ConnectedSearchUseWeb",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+        "name": "DisableWebSearch",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+        "name": "AllowCloudSearch",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Dsh",
+        "name": "AllowWidgets",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsCopilot",
+        "name": "TurnOffWindowsCopilot",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\GameDVR",
+        "name": "AllowGameDVR",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Power\\PowerThrottling",
+        "name": "PowerThrottlingOff",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
+        "name": "SystemResponsiveness",
+        "type": "REG_DWORD",
+        "data": "10"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
+        "name": "NetworkThrottlingIndex",
+        "type": "REG_DWORD",
+        "data": "4294967295"
+      },
+      {
+        "key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\PriorityControl",
+        "name": "Win32PrioritySeparation",
+        "type": "REG_DWORD",
+        "data": "26"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Dfrg\\BootOptimizeFunction",
+        "name": "Enable",
+        "type": "REG_SZ",
+        "data": "N"
+      },
+      {
+        "key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\DiagLog",
+        "name": "Start",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\WDIContextLog",
+        "name": "Start",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\CloudExperienceHostOOBE",
+        "name": "Start",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\WiFiDriverIHVSession",
+        "name": "Start",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\WiFiSession",
+        "name": "Start",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\Cellcore",
+        "name": "Start",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\ReFSLog",
+        "name": "Start",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\HomeGroup",
+        "name": "DisableHomeGroup",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Maps",
+        "name": "AutoDownloadAndUpdateMapData",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Maps",
+        "name": "AllowUntriggeredNetworkTrafficOnSettingsPage",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Messaging",
+        "name": "AllowMessageSync",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization",
+        "name": "DODownloadMode",
+        "type": "REG_DWORD",
+        "data": "99"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Peernet",
+        "name": "Disabled",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\HotspotAuthentication",
+        "name": "Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\NetworkIsolation",
+        "name": "DSubnetsAuthoritive",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoRemoteRecursiveEvents",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WwanSvc\\CellularDataAccess",
+        "name": "LetAppsAccessCellularData",
+        "type": "REG_DWORD",
+        "data": "2"
+      }
+    ],
+    "hkcu": [
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "ContentDeliveryAllowed",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SubscribedContent-338393Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SubscribedContent-353694Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SubscribedContent-353696Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SubscribedContent-338387Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SubscribedContent-338388Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SubscribedContent-338389Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SubscribedContent-353698Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SubscribedContent-310093Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SoftLandingEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SilentInstalledAppsEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "PreInstalledAppsEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "OemPreInstalledAppsEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+        "name": "SystemPaneSuggestionsEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "Start_IrisRecommendations",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "Start_NotifyNewApps",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "HideRecommendedPersonalizedSites",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "TaskbarMn",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "TaskbarAnimations",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "ListviewAlphaSelect",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "DisablePreviewDesktop",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "ShowCopilotButton",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "ShowTaskViewButton",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+        "name": "SearchboxTaskbarMode",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        "name": "EnableTransparency",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\DWM",
+        "name": "EnableAeroPeek",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects",
+        "name": "VisualFXSetting",
+        "type": "REG_DWORD",
+        "data": "3"
+      },
+      {
+        "key": "Control Panel\\Desktop",
+        "name": "MenuShowDelay",
+        "type": "REG_SZ",
+        "data": "120"
+      },
+      {
+        "key": "Control Panel\\Desktop",
+        "name": "DragFullWindows",
+        "type": "REG_SZ",
+        "data": "0"
+      },
+      {
+        "key": "Control Panel\\Desktop",
+        "name": "ScreenSaveActive",
+        "type": "REG_SZ",
+        "data": "0"
+      },
+      {
+        "key": "Control Panel\\Desktop\\WindowMetrics",
+        "name": "MinAnimate",
+        "type": "REG_SZ",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "name": "NoThumbnailCache",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "Software\\Policies\\Microsoft\\Windows\\Explorer",
+        "name": "DisableThumbsDBOnNetworkFolders",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR",
+        "name": "GameDVR_Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "System\\GameConfigStore",
+        "name": "GameDVR_Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\GameBar",
+        "name": "AutoGameModeEnabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\AutoplayHandlers",
+        "name": "DisableAutoplay",
+        "type": "REG_DWORD",
+        "data": "1"
+      },
+      {
+        "key": "Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo",
+        "name": "Enabled",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\Siuf\\Rules",
+        "name": "NumberOfSIUFInPeriod",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Software\\Microsoft\\InputPersonalization\\TrainedDataStore",
+        "name": "HarvestContacts",
+        "type": "REG_DWORD",
+        "data": "0"
+      },
+      {
+        "key": "Control Panel\\International\\User Profile",
+        "name": "HttpAcceptLanguageOptout",
+        "type": "REG_DWORD",
+        "data": "1"
+      }
+    ],
+    "commands": [
+      {
+        "file": "fsutil.exe",
+        "args": [
+          "behavior",
+          "set",
+          "DisableLastAccess",
+          "1"
+        ]
+      }
+    ],
+    "power": {
+      "activeScheme": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+      "change": [
+        [
+          "standby-timeout-ac",
+          "0"
+        ],
+        [
+          "standby-timeout-dc",
+          "0"
+        ],
+        [
+          "hibernate-timeout-ac",
+          "0"
+        ],
+        [
+          "hibernate-timeout-dc",
+          "0"
+        ],
+        [
+          "monitor-timeout-ac",
+          "0"
+        ],
+        [
+          "monitor-timeout-dc",
+          "0"
+        ],
+        [
+          "disk-timeout-ac",
+          "0"
+        ],
+        [
+          "disk-timeout-dc",
+          "0"
+        ]
+      ],
+      "hibernateOff": true,
+      "hiberbootOff": true,
+      "usbSelectiveSuspendOff": true,
+      "pcieAspmOff": true,
+      "setActiveAfter": true
+    }
+  },
+  "profiles": {
+    "Safe": {
+      "services": [],
+      "tasks": [],
+      "hklm": [],
+      "hkcu": []
+    },
+    "Balanced": {
+      "services": [
+        "SysMain",
+        "WSearch",
+        "MapsBroker",
+        "lfsvc",
+        "WMPNetworkSvc",
+        "XblAuthManager",
+        "XblGameSave",
+        "XboxGipSvc",
+        "XboxNetApiSvc",
+        "PhoneSvc",
+        "WpcMonSvc",
+        "Fax",
+        "RemoteRegistry"
+      ],
+      "tasks": [
+        {
+          "path": "\\Microsoft\\Windows\\WwanSvc\\",
+          "name": "NotificationTask"
+        },
+        {
+          "path": "\\Microsoft\\Windows\\WCM\\",
+          "name": "WiFiTask"
+        },
+        {
+          "path": "\\Microsoft\\Windows\\UPnP\\",
+          "name": "UPnPHostConfig"
+        },
+        {
+          "path": "\\Microsoft\\Windows\\Management\\Provisioning\\",
+          "name": "Cellular"
+        },
+        {
+          "path": "\\Microsoft\\Windows\\Mobile Broadband Accounts\\",
+          "name": "MNO Metadata Parser"
+        },
+        {
+          "path": "\\Microsoft\\Windows\\Ras\\",
+          "name": "MobilityManager"
+        },
+        {
+          "path": "\\Microsoft\\Windows\\Shell\\",
+          "name": "IndexerAutomaticMaintenance"
+        },
+        {
+          "path": "\\Microsoft\\Windows\\Sysmain\\",
+          "name": "WsSwapAssessmentTask"
+        },
+        {
+          "path": "\\Microsoft\\Windows\\Sysmain\\",
+          "name": "ResPriStaticDbSync"
+        }
+      ],
+      "hklm": [],
+      "hkcu": []
+    },
+    "3D": {
+      "services": [],
+      "tasks": [],
+      "hklm": [],
+      "hkcu": [
+        {
+          "key": "System\\GameConfigStore",
+          "name": "GameDVR_FSEBehaviorMode",
+          "type": "REG_DWORD",
+          "data": "2"
+        },
+        {
+          "key": "System\\GameConfigStore",
+          "name": "GameDVR_HonorUserFSEBehaviorMode",
+          "type": "REG_DWORD",
+          "data": "1"
+        },
+        {
+          "key": "System\\GameConfigStore",
+          "name": "GameDVR_DXGIHonorFSEWindowsCompatible",
+          "type": "REG_DWORD",
+          "data": "1"
+        },
+        {
+          "key": "System\\GameConfigStore",
+          "name": "GameDVR_EFSEFeatureFlags",
+          "type": "REG_DWORD",
+          "data": "0"
+        },
+        {
+          "key": "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR",
+          "name": "AppCaptureEnabled",
+          "type": "REG_DWORD",
+          "data": "0"
+        },
+        {
+          "key": "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR",
+          "name": "HistoricalCaptureEnabled",
+          "type": "REG_DWORD",
+          "data": "0"
+        },
+        {
+          "key": "Software\\Microsoft\\GameBar",
+          "name": "ShowStartupPanel",
+          "type": "REG_DWORD",
+          "data": "0"
+        },
+        {
+          "key": "Software\\Microsoft\\GameBar",
+          "name": "UseNexusForGameBarEnabled",
+          "type": "REG_DWORD",
+          "data": "0"
+        }
+      ]
+    }
+  }
+}

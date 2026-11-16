@@ -1,0 +1,170 @@
+# vEMU desktop template — RHEL-like GNOME (AlmaLinux 10.2, qcow2)
+#
+# Build:
+#   image-builder manifest qcow2 --distro almalinux-10.2 --blueprint blueprint.toml
+#   image-builder build qcow2 --distro almalinux-10.2 \
+#     --blueprint blueprint.toml --output-dir ./out
+#
+# For Rocky/CentOS/Oracle, change distro to the matching image-builder name.
+# RHEL itself needs subscription/entitlement and is not a 0.2.0 target.
+#
+# AlmaLinux GNOME comes from the base repositories. EPEL/CRB are optional here;
+# uncomment them only if you add packages that need them.
+
+name = "vemu-rhel-like-gnome"
+description = "Minimal RHEL-like GNOME desktop for vEMU labs"
+version = "1.0.0"
+distro = "almalinux-10.2"
+
+# Give GNOME room beyond the default 2 GiB root partition.
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = 8589934592
+
+[[groups]]
+name = "gnome-desktop"
+
+[[packages]]
+name = "firefox"
+version = "*"
+
+[[packages]]
+name = "openssh-server"
+version = "*"
+
+[[packages]]
+name = "qemu-guest-agent"
+version = "*"
+
+# Required for customizations.locale.languages = ["en_US.UTF-8"].
+[[packages]]
+name = "glibc-langpack-en"
+version = "*"
+
+# GNOME uses U+2236 (ratio colon) in the clock and display settings. The
+# minimal image has no font covering it, which renders as a box; DejaVu Sans
+# provides the fallback glyph.
+[[packages]]
+name = "dejavu-sans-fonts"
+version = "*"
+
+[customizations]
+hostname = "vemu-rhel-like-gnome"
+
+[customizations.timezone]
+timezone = "UTC"
+# ntpservers = ["0.pool.ntp.org", "1.pool.ntp.org"]
+
+[customizations.locale]
+languages = ["en_US.UTF-8"]
+keyboard = "us"
+
+[customizations.services]
+enabled = ["sshd", "qemu-guest-agent", "gdm", "vemu-graphical-default.service"]
+
+# Boot graphical with the kernel argument; the systemd unit below persists the
+# default target on first boot.
+[customizations.kernel]
+append = "systemd.unit=graphical.target"
+
+# PackageKit can exceed its default 45s start timeout on a slow first boot.
+[[customizations.directories]]
+path = "/etc/systemd/system/packagekit.service.d"
+
+[[customizations.files]]
+path = "/etc/systemd/system/packagekit.service.d/10-vemu-timeout.conf"
+data = "[Unit]\nAfter=network-online.target\n\n[Service]\nTimeoutStartSec=180\n"
+mode = "0644"
+
+# Default lab account. Change the hash before sharing the image.
+# Generate a new one with: openssl passwd -6
+[[customizations.user]]
+name = "lab"
+password = "$6$PV5Tnck0Y5T/B.2J$vUWY6meG9.7xZa20THF.WoRxxCaXQLo0v.o6KW/QVbZ789jUJQ9rAftqr5dM/E186Up3x8rEKjqqqR/T9GPMt."
+groups = ["wheel"]
+# key = "ssh-ed25519 AAAA... user@example"
+
+[[customizations.directories]]
+path = "/etc/skel/.config"
+
+[[customizations.files]]
+path = "/etc/skel/.config/gnome-initial-setup-done"
+data = "done\n"
+mode = "0644"
+
+# Persist the graphical default target with a systemd oneshot unit. This works
+# on image-builder 52 (AlmaLinux 10.2) as well as newer releases; the older CLI
+# rejects customizations.firstboot and customizations.services.default_target.
+[[customizations.files]]
+path = "/etc/systemd/system/vemu-graphical-default.service"
+data = "[Unit]\nDescription=Persist the vEMU graphical default target\nConditionPathExists=!/var/lib/vemu/graphical-default.done\nAfter=local-fs.target\n\n[Service]\nType=oneshot\nStateDirectory=vemu\nExecStart=/usr/bin/systemctl set-default graphical.target\nExecStart=/usr/bin/touch /var/lib/vemu/graphical-default.done\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n"
+mode = "0644"
+
+# ---------------------------------------------------------------------------
+# Optional: EPEL + CRB
+#
+# Uncomment both repository blocks and add the matching --extra-repo flags:
+#   --extra-repo https://dl.fedoraproject.org/pub/epel/10/Everything/x86_64/
+#   --extra-repo https://repo.almalinux.org/almalinux/10.2/CRB/x86_64/os/
+#
+# [[customizations.repositories]]
+# id = "vemu-crb"
+# name = "AlmaLinux 10.2 CRB"
+# baseurls = ["https://repo.almalinux.org/almalinux/10.2/CRB/x86_64/os/"]
+# gpgcheck = true
+# gpgkeys = ["https://repo.almalinux.org/almalinux/RPM-GPG-KEY-AlmaLinux-10"]
+# enabled = true
+#
+# [[customizations.repositories]]
+# id = "epel"
+# name = "Extra Packages for Enterprise Linux 10"
+# baseurls = ["https://dl.fedoraproject.org/pub/epel/10/Everything/x86_64/"]
+# gpgcheck = true
+# gpgkeys = ["https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-10"]
+# enabled = true
+# ---------------------------------------------------------------------------
+# Optional: RPM Fusion Free/Nonfree for EL10
+#
+# Uncomment both repository blocks and add the matching --extra-repo flags:
+#   --extra-repo https://download1.rpmfusion.org/free/el/updates/10/x86_64/
+#   --extra-repo https://download1.rpmfusion.org/nonfree/el/updates/10/x86_64/
+#
+# [[customizations.repositories]]
+# id = "rpmfusion-free"
+# name = "RPM Fusion Free for EL10"
+# baseurls = ["https://download1.rpmfusion.org/free/el/updates/10/x86_64/"]
+# gpgcheck = true
+# gpgkeys = ["https://download1.rpmfusion.org/free/el/RPM-GPG-KEY-rpmfusion-free-el-10"]
+# enabled = true
+#
+# [[customizations.repositories]]
+# id = "rpmfusion-nonfree"
+# name = "RPM Fusion Nonfree for EL10"
+# baseurls = ["https://download1.rpmfusion.org/nonfree/el/updates/10/x86_64/"]
+# gpgcheck = true
+# gpgkeys = ["https://download1.rpmfusion.org/nonfree/el/RPM-GPG-KEY-rpmfusion-nonfree-el-10"]
+# enabled = true
+# ---------------------------------------------------------------------------
+# Optional: firstboot debloat
+#
+# Runs once at first boot, not at build time. Uncomment and edit the list.
+# The image still contains these packages until the first boot finishes.
+#
+# [[customizations.firstboot.scripts]]
+# type = "custom"
+# name = "vemu-debloat"
+# ignore_failure = true
+# contents = """
+# #!/bin/bash
+# set -u
+# LOG=/var/log/vemu-debloat.log
+# exec >>"$LOG" 2>&1
+# Tested on this Alma GNOME minimal package set:
+# DEBLOAT="gnome-characters gnome-clocks"
+# REMOVE=""
+# for p in $DEBLOAT; do
+#   rpm -q "$p" >/dev/null 2>&1 && REMOVE="$REMOVE $p"
+# done
+# [ -n "$REMOVE" ] && dnf -y --disablerepo='*' remove $REMOVE || true
+# touch /var/lib/vemu/debloat.done
+# """
