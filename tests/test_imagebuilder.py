@@ -228,7 +228,7 @@ class RealAdapterTests(unittest.TestCase):
         with mock.patch.object(
             self.adapter,
             "host_status",
-            return_value=HostStatus(True, "Fedora 44 · image-builder 89"),
+            return_value=HostStatus(True, "Fedora 45 · image-builder 89"),
         ), mock.patch.object(
             self.adapter,
             "_selinux_preflight",

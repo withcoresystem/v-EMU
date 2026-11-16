@@ -1500,7 +1500,7 @@ class UiTests(unittest.TestCase):
                 dialog.virtio_edit.setText(str(Path(tmp) / "virtio-win.iso"))
                 dialog.name_edit.setText("linux-lab")
                 dialog.iso_edit.setText(
-                    "/home/ISO/Fedora-Workstation-44.iso"
+                    "/home/ISO/Fedora-Workstation-45.iso"
                 )
                 dialog.dest_edit.setText(tmp)
                 dialog._create()
@@ -1528,7 +1528,7 @@ class UiTests(unittest.TestCase):
         try:
             self.assertEqual(dialog.memory_spin.suffix().strip(), "GB")
             dialog.name_edit.setText("small-linux")
-            dialog.iso_edit.setText("/home/ISO/Fedora-Workstation-44.iso")
+            dialog.iso_edit.setText("/home/ISO/Fedora-Workstation-45.iso")
             dialog._detect_iso()
             dialog.dest_edit.setText("/tmp/labs")
             dialog.memory_spin.setValue(1.5)
@@ -1633,7 +1633,7 @@ class UiTests(unittest.TestCase):
 
         dialog = NewVmDialog(FakeBackend())
         try:
-            dialog.iso_edit.setText("/home/ISO/Fedora-Workstation-44.iso")
+            dialog.iso_edit.setText("/home/ISO/Fedora-Workstation-45.iso")
             dialog._detect_iso()
             self.assertEqual(dialog.family_combo.currentData(), "linux")
             self.assertEqual(dialog.variant_combo.currentData(), "fedora")
@@ -2633,18 +2633,18 @@ class UiTests(unittest.TestCase):
             self.assertEqual(dialog.step, 0)
             dialog._next()
             self.assertEqual(dialog.step, 1)
-            dialog.storage_edit.setText("/home/tructt/vemu-labs")
+            dialog.storage_edit.setText("/home/user/vemu-labs")
             dialog._next()
             self.assertEqual(dialog.step, 2)
             dialog._next()
             self.assertEqual(dialog.step, 3)
-            self.assertIn("/home/tructt/vemu-labs", dialog.summary_label.text())
+            self.assertIn("/home/user/vemu-labs", dialog.summary_label.text())
             self.assertIn("lab-nat", dialog.summary_label.text())
             dialog._next()
             self.assertTrue(dialog.storage_done)
             self.assertTrue(dialog.network_done)
             self.assertIn(
-                ("storage", "/home/tructt/vemu-labs", "labs"), calls
+                ("storage", "/home/user/vemu-labs", "labs"), calls
             )
             self.assertIn(("apply",), calls)
         finally:
@@ -2700,7 +2700,7 @@ class UiTests(unittest.TestCase):
         dialog = NewVmDialog(FakeBackend())
         try:
             dialog.name_edit.setText("fedora-lab")
-            dialog.iso_edit.setText("/home/ISO/Fedora-Workstation-44.iso")
+            dialog.iso_edit.setText("/home/ISO/Fedora-Workstation-45.iso")
             dialog._detect_iso()
             dialog.dest_edit.setText("/tmp/labs")
             self.assertEqual(dialog.step, 0)

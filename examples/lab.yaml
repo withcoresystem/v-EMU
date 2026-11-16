@@ -15,7 +15,7 @@ networks:
 
 vms:
   node1:
-    template: fedora-44-cloud
+    template: fedora-45-cloud
     cpus: 2
     memory: 2G
     networks: [mgmt, server]
@@ -27,7 +27,7 @@ vms:
       packages: [vim, tcpdump]
 
   node2:
-    template: fedora-44-cloud
+    template: fedora-45-cloud
     cpus: 1
     memory: 1G
     networks: [server]

@@ -52,9 +52,9 @@ After the first install, log out and back in so the new `vemu`, `libvirt` and
 
 | Tier | Hosts |
 |---|---|
-| Official | Fedora 44; Rocky Linux 10.2; RHEL 10.2 (`--standard` + GNOME UI); openSUSE Leap 16.1; Tumbleweed snapshot 20261028; Debian 13 |
+| Official | Fedora 45; AlmaLinux 10.3; RHEL 10.3 (`--standard` + GNOME UI); openSUSE Leap 16.1; Tumbleweed snapshot 20261028; Debian 13 |
 | Best effort | Debian 12 |
-| As-is | Ubuntu/Kubuntu 26.04, Slowroll, Fedora 45+, SLES/SLED, older RHEL/Rocky/Alma, Arch/Kali and unlisted distributions |
+| As-is | Ubuntu/Kubuntu 26.04, Slowroll, newer Fedora pre-release builds, SLES/SLED, RHEL/Rocky/Alma 9 and older, Arch/Kali and unlisted distributions |
 | Experimental | Arch/CachyOS/Omarchy: core only via `contrib/setup-arch.sh`; no Image Builder |
 
 Host support only covers installing/running v-EMU; guest OS support is wider.

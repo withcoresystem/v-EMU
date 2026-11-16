@@ -45,7 +45,7 @@ class OsDetectionTests(unittest.TestCase):
 
     def test_linux_distributions(self) -> None:
         for name, variant in (
-            ("Fedora-Workstation-44.iso", "fedora"),
+            ("Fedora-Workstation-45.iso", "fedora"),
             ("ubuntu-24.04.2-desktop-amd64.iso", "ubuntu"),
             ("Rocky-9.5-x86_64-dvd.iso", "rocky"),
             ("debian-12.9.0-amd64-netinst.iso", "debian"),

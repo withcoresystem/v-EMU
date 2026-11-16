@@ -3086,7 +3086,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--name", help="Lab name (default: file stem).")
     init.add_argument("--dest", default="./vms", help="VM storage directory.")
     init.add_argument(
-        "--template", default="fedora-44-x86", help="Template name for node1."
+        "--template", default="fedora-45-x86", help="Template name for node1."
     )
     init.add_argument("--force", action="store_true")
     init.set_defaults(func=_cmd_init)

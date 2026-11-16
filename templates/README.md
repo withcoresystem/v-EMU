@@ -55,7 +55,7 @@ Detailed rules, payload contract and the verification checklist are in
 
 ## Validation status
 
-Validated on `DEV-Fedora-45` with `image-builder 87.0.0` / `osbuild 193`:
+Validated on Fedora 45 with `image-builder 87.0.0` / `osbuild 193`:
 
 | Template | Manifest | Build | Boot test |
 |---|---|---|---|

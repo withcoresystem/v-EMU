@@ -17,7 +17,7 @@ network:
   server: { mode: isolated, subnet: 192.168.10.0/24 }
 vms:
   node1:
-    template: fedora-44-x86
+    template: fedora-45-x86
     cpus: 2
     memory: 2G
     networks: [mgmt, server]
@@ -27,7 +27,7 @@ vms:
       ssh_key: ~/.ssh/id_ed25519.pub
       packages: [vim, tcpdump]
   node2:
-    template: fedora-44-x86
+    template: fedora-45-x86
     cpus: 1
     memory: 1G
     networks:
