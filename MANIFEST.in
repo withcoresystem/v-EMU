@@ -12,5 +12,6 @@ recursive-include packaging *
 include LICENSE
 include NOTICE
 include DISCLAIMER.md
+include CREDITS.md
 recursive-include firmware *
 recursive-include examples *

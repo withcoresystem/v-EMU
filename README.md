@@ -10,6 +10,9 @@ host. It drives QEMU/KVM and libvirt directly: no second hypervisor, no web
 control plane, no cluster to babysit. Templates, storage, networks, consoles
 and lab definitions live in one place, with a CLI for the same operations.
 
+v-EMU is maintained by **Tran Trung Truc** at **CORESYSTEM VN** —
+[coresystem.vn](https://coresystem.vn).
+
 > **Status:** 0.3.0 release — the final broad host release. Fedora/RHEL-family
 > hosts are the primary, fully supported tier. Debian 13.x, Ubuntu 26.04,
 > openSUSE Leap 16.1 and Arch-based desktops are secondary/experimental tiers.
@@ -176,6 +179,7 @@ Create lab storage and a NAT network from the first-run wizard, or from
 | [`docs/release-notes/v0.3.0.md`](docs/release-notes/v0.3.0.md) | 0.3.0 release notes and validation |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Issues, pull requests and scope |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability reporting and trust model |
+| [`CREDITS.md`](CREDITS.md) | Maintainer, organization and upstream credit |
 | [`DISCLAIMER.md`](DISCLAIMER.md) | Warranty, data/backup and liability terms |
 
 ## Non-goals

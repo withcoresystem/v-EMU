@@ -80,6 +80,12 @@ GPL-3.0-or-later, the same license as the project.
 Product UI, CLI and public documentation are English. Internal investigation
 notes are not part of the public documentation set.
 
+## Credits and forks
+
+Keep `LICENSE`, `NOTICE` and `CREDITS.md` when forking or redistributing. State
+your changes clearly and preserve upstream project credit. Do not remove
+third-party notices from bundled assets or templates.
+
 ## Release artifacts
 
 Public releases are produced from `main` by the maintainer. The planned novice

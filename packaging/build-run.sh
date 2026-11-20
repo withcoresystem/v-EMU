@@ -31,7 +31,7 @@ mkdir -p "$TMP/vEMU/docs" "$TMP/vEMU/docs/images" "$TMP/vEMU/contrib/windows"
 cp "$ROOT/docs/MANUAL.md" "$ROOT/docs/BUILDER.md" "$ROOT/README.md" \
     "$ROOT/docs/GRAPHICS.md" "$ROOT/LICENSE" "$ROOT/NOTICE" \
     "$ROOT/DISCLAIMER.md" "$ROOT/CONTRIBUTING.md" "$ROOT/SECURITY.md" \
-    "$TMP/vEMU/"
+    "$ROOT/CREDITS.md" "$TMP/vEMU/"
 cp "$ROOT/docs/USER-GUIDE.md" "$ROOT/docs/ARCHITECTURE.md" \
     "$ROOT/docs/ARCH-EXPERIMENTAL.md" "$ROOT/docs/BUILDER-BRANDING.md" \
     "$ROOT/docs/WINDOWS-SEAMLESS.md" "$ROOT/docs/WINDOWS-3D-PREVIEW.md" \

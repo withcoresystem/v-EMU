@@ -888,3 +888,11 @@ table are in [`SECURITY.md`](../SECURITY.md#runtime-network-access).
 - Firmware/platform version `1.0` is independent of the vEMU application
   release. Normal code releases do not rebuild firmware or change SMBIOS; new
   x86_64 VMs expose `1.0`, existing VMs keep the identity recorded at creation.
+
+## 12. Credits
+
+v-EMU is maintained by **Tran Trung Truc** at **CORESYSTEM VN**.
+Website: [coresystem.vn](https://coresystem.vn).
+
+Third-party attribution and license texts are in [`../CREDITS.md`](../CREDITS.md),
+[`../NOTICE`](../NOTICE) and [`../firmware/NOTICE`](../firmware/NOTICE).
