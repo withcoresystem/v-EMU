@@ -4,6 +4,7 @@ include BUILDER.md
 include GRAPHICS.md
 include setup.sh
 include contrib/setup-arch.sh
+recursive-include contrib/windows *
 recursive-include src/vemu/ui/web/novnc *
 recursive-include src/vemu/ui/assets *
 include src/vemu/py.typed

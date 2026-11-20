@@ -70,9 +70,71 @@ class SnapshotsUiTests(unittest.TestCase):
                 dialog.table.topLevelItem(0).childCount(), 1
             )
             self.assertTrue(dialog.create_button.isEnabled())
+            self.assertTrue(dialog.compact_button.isEnabled())
             dialog.table.setCurrentItem(dialog.table.topLevelItem(0))
             self.assertTrue(dialog.revert_button.isEnabled())
             self.assertTrue(dialog.delete_button.isEnabled())
+        finally:
+            dialog.close()
+
+    def test_compaction_progress_hidden_after_finish(self) -> None:
+        from vemu.ui.snapshots import SnapshotsDialog
+
+        info = self._info()
+
+        class FakeBackend:
+            def snapshots_info(self, _name: str) -> dict:
+                return info
+
+        dialog = SnapshotsDialog(FakeBackend(), "vm1")
+        try:
+            dialog.compact_progress.show()
+            dialog._compact_finished()
+            self.assertFalse(dialog.compact_progress.isVisible())
+        finally:
+            dialog.close()
+
+    def test_compact_disabled_while_running_or_with_one_layer(self) -> None:
+        from vemu.ui.snapshots import SnapshotsDialog
+
+        running = self._info(running=True)
+
+        class RunningBackend:
+            def snapshots_info(self, _name: str) -> dict:
+                return running
+
+        dialog = SnapshotsDialog(RunningBackend(), "vm1")
+        try:
+            self.assertFalse(dialog.compact_button.isEnabled())
+        finally:
+            dialog.close()
+
+        single = self._info()
+        single["snapshot_model"] = 2
+        single["active"] = "0001"
+        single["layers"] = single["layers"][:1]
+
+        class SingleBackend:
+            def snapshots_info(self, _name: str) -> dict:
+                return single
+
+        dialog = SnapshotsDialog(SingleBackend(), "vm1")
+        try:
+            self.assertFalse(dialog.compact_button.isEnabled())
+        finally:
+            dialog.close()
+
+        legacy = self._info()
+        legacy["active"] = "0001"
+        legacy["layers"] = legacy["layers"][:1]
+
+        class LegacySingleBackend:
+            def snapshots_info(self, _name: str) -> dict:
+                return legacy
+
+        dialog = SnapshotsDialog(LegacySingleBackend(), "vm1")
+        try:
+            self.assertFalse(dialog.compact_button.isEnabled())
         finally:
             dialog.close()
 

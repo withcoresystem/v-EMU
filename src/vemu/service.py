@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -20,6 +21,7 @@ import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,46 @@ from .firmware import firmware_for
 from .guest_virtiofs import mount as guest_virtiofs_mount
 from .guest_virtiofs import mount_status as guest_virtiofs_mount_status
 from .guest_virtiofs import unmount as guest_virtiofs_unmount
+from .guest.qga import QGATransport
+from .guest.ssh import SSHTransport, scan_host_key
+from .seamless.prepare import (
+    SeamlessPrepare,
+    prepare_seamless,
+    state_dir as seamless_state_dir,
+    write_state as write_seamless_state,
+)
+from .seamless.rdp import (
+    add_remoteapp_app as seamless_add_remoteapp_app,
+)
+from .seamless.rdp import preflight as seamless_preflight
+from .seamless.rdp import (
+    remove_remoteapp_app as seamless_remove_remoteapp_app,
+)
+from .seamless.apps import (
+    discover_start_menu_apps,
+    published_by_name,
+    store_aumid,
+    with_compat_arguments,
+)
+from .seamless.launch import test_rail_app
+from .seamless.watch import spawn as spawn_rail_watchdog
+from .seamless import shortcuts as seamless_shortcuts
+from .seamless import icons as seamless_icons
+from .seamless import credentials
+from .seamless.credentials import get_password as get_rdp_password
+from .seamless.store import ensure_activator
+from .seamless.launch import (
+    ensure_freerdp_compatible,
+    ensure_seed,
+    freerdp_status,
+    launch_in_session,
+    start_supervisor,
+    stop_seed,
+    stop_supervisor,
+    supervisor_paths,
+    supervisor_pid,
+    wait_for_session,
+)
 from .shares import ShareAssignment, ShareDefinition, ShareStore
 from .guest_clipboard import (
     ensure_guest_clipboard_agent,
@@ -112,6 +154,9 @@ from .vmconfig import (
     set_cdrom_media,
     set_management_metadata,
 )
+
+
+SEAMLESS_VIDEO_MODELS = {"qxl", "vga"}
 
 
 def _clone_hostname(name: str) -> str:
@@ -324,7 +369,7 @@ def domain_rescue_shutdown(
 
 @contextmanager
 def _migration_lock():
-    """Serialize host-heavy Full migrations across daemon/CLI processes."""
+    """Serialize host-heavy storage operations across daemon/CLI processes."""
     run_dir = os.environ.get("VEMU_RUN_DIR")
     candidates = [
         Path(run_dir or "/run/vemu") / "migrate.lock",
@@ -346,8 +391,9 @@ def _migration_lock():
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise Conflict(
-                "Another Full migration is already running. Wait for it to "
-                "finish before starting another."
+                "Another storage operation (migration, compaction or export) "
+                "is already running. Wait for it to finish before starting "
+                "another."
             ) from exc
         yield
     finally:
@@ -355,6 +401,17 @@ def _migration_lock():
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         finally:
             handle.close()
+
+
+def _serialized_storage(func):
+    """Serialize chain mutations with migration/compaction."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with _migration_lock():
+            return func(*args, **kwargs)
+
+    return wrapper
 
 
 def domains_list(uri: str = "qemu:///system") -> list[dict[str, Any]]:
@@ -486,9 +543,18 @@ def domain_delete(
     *,
     delete_storage: bool = False,
     force: bool = False,
+    state_dir: str | Path | None = None,
+    shortcut_dir: str | Path | None = None,
     uri: str = "qemu:///system",
 ) -> dict[str, Any]:
-    """Undefine a VM, optionally deleting v-EMU-managed chain directories."""
+    """Undefine a VM and clean the host-side seamless/3D artifacts.
+
+    ``delete_storage=False`` keeps disks, state and recovery files but removes
+    published shortcuts and stops the RAIL supervisor. ``delete_storage=True``
+    also purges seamless/3D state, keys and keyring entries. The experimental
+    3D host-wide qemu.conf change is never restored automatically; it is
+    reported as a warning.
+    """
     with LibvirtBackend(uri) as backend:
         info = _require_writable(backend, domain)
         if info.state != "stopped" and not force:
@@ -501,6 +567,16 @@ def domain_delete(
     warnings: list[str] = []
     metadata_deleted: list[str] = []
     share_assignments = 0
+    try:
+        host_cleanup = _cleanup_deleted_host_state(
+            domain,
+            state_dir=state_dir,
+            shortcut_dir=shortcut_dir,
+            purge_state=delete_storage,
+        )
+    except Exception as exc:  # noqa: BLE001 - VM is already undefined
+        host_cleanup = {"warnings": [f"Host-state cleanup failed: {exc}"]}
+    warnings.extend(str(item) for item in host_cleanup.get("warnings") or [])
     if delete_storage:
         for path in disks:
             disk_path = Path(path).expanduser().resolve()
@@ -541,6 +617,7 @@ def domain_delete(
         "storage_deleted": deleted,
         "metadata_deleted": metadata_deleted,
         "share_assignments_deleted": share_assignments,
+        "host_cleanup": host_cleanup,
         "warnings": warnings,
     }
 
@@ -793,6 +870,7 @@ def _snapshot_description(value: object) -> str:
     return text
 
 
+@_serialized_storage
 def snapshots_create(
     domain: str,
     label: str = "",
@@ -832,6 +910,7 @@ def snapshots_create(
         }
 
 
+@_serialized_storage
 def snapshots_update(
     domain: str,
     layer: str,
@@ -858,6 +937,7 @@ def snapshots_update(
         return {"layer": snapshot.to_dict(), **manager.info()}
 
 
+@_serialized_storage
 def snapshots_revert(
     domain: str, layer: str, uri: str = "qemu:///system"
 ) -> dict[str, Any]:
@@ -886,6 +966,7 @@ def snapshots_revert(
 
 
 
+@_serialized_storage
 def snapshots_delete(
     domain: str,
     layer: str,
@@ -896,12 +977,116 @@ def snapshots_delete(
     with LibvirtBackend(uri) as backend:
         chain_dir = _require_stopped(backend, domain)
         manager = ChainManager(chain_dir)
+        protected = _seamless_rollback_for_layer(domain, layer)
+        if protected and not force:
+            raise Conflict(
+                f"Snapshot '{layer}' is the rollback checkpoint for "
+                f"seamless mode on '{domain}'. Run "
+                "'vemu seamless rollback DOMAIN' first, or pass --force to "
+                "discard the checkpoint."
+            )
         manager.delete(layer, force=force)
+        if protected:
+            _invalidate_seamless_rollback(
+                domain, "snapshot deleted with --force"
+            )
         _relabel(chain_dir)
         changes = _chain_source_changes(backend, domain, manager.load())
         if changes:
             backend.update_disk_sources(domain, changes)
         return manager.info()
+
+
+def snapshots_compact(
+    domain: str,
+    uri: str = "qemu:///system",
+    *,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Merge the active branch into the first layer and reclaim old layers.
+
+    The VM must be stopped and fully managed. All snapshot rollback points are
+    merged or discarded; ``confirm`` acknowledges that loss.
+    """
+    with _migration_lock():
+        with LibvirtBackend(uri) as backend:
+            chain_dir = _require_stopped(backend, domain)
+            manager = ChainManager(chain_dir)
+            plan = manager.compact_plan()
+            protected = [
+                item
+                for item in _seamless_rollback_manifests()
+                if str(item.get("domain", "")) == domain
+            ]
+            if dry_run:
+                try:
+                    _chain_source_changes(
+                        backend, domain, manager.load()
+                    )
+                except VemuError as exc:
+                    plan["supported"] = False
+                    plan["reasons"] = [
+                        *plan.get("reasons", []),
+                        str(exc),
+                    ]
+                return {
+                    "domain": domain,
+                    "state": "stopped",
+                    "dry_run": True,
+                    "seamless_rollback_protected": [
+                        str(item.get("domain", "")) for item in protected
+                    ],
+                    **plan,
+                }
+            if not plan["supported"]:
+                raise Conflict("; ".join(plan["reasons"]))
+            if protected and not confirm:
+                names = ", ".join(
+                    str(item.get("domain", "?")) for item in protected
+                )
+                raise Conflict(
+                    "Compaction would remove seamless rollback checkpoints "
+                    f"for: {names}. Run 'vemu seamless rollback' for those "
+                    "VMs first, or pass --confirm to discard them."
+                )
+            if plan["requires_snapshot_loss"] and not confirm:
+                raise ValidationError(
+                    "Compaction removes every snapshot rollback point. "
+                    "Re-run with confirmation after keeping a backup if "
+                    "needed."
+                )
+            before = backend.config_xml(domain)
+            _chain_source_changes(backend, domain, manager.load())
+
+            def update_domain(new_chain) -> None:
+                changes = _chain_source_changes(
+                    backend, domain, new_chain
+                )
+                if changes:
+                    backend.update_disk_sources(domain, changes)
+
+            try:
+                result = manager.compact(
+                    confirm_snapshot_loss=confirm,
+                    update_domain=update_domain,
+                )
+            except Exception:
+                # The manager restores chain.json and removes its new files;
+                # restore the domain XML as well.
+                try:
+                    backend.redefine_domain(domain, before)
+                except VemuError:
+                    pass
+                raise
+            _relabel(chain_dir)
+            if protected:
+                for item in protected:
+                    _invalidate_seamless_rollback(
+                        str(item.get("domain", "")),
+                        "storage compaction with --confirm",
+                    )
+            return result
 
 
 def console_info(domain: str, uri: str = "qemu:///system") -> dict[str, Any]:
@@ -2115,6 +2300,9 @@ def _vm_import_impl(
                         mac=str(mac) if mac else backend.unique_mac(),
                     )
                 )
+            spec_os_type = str(specs.get("os_type", "generic"))
+            if spec_os_type not in {"windows", "linux", "hypervisor", "generic"}:
+                spec_os_type = "generic"
             spec = DomainSpec(
                 name=name,
                 memory_mib=int(specs["memory_mib"]),
@@ -2129,11 +2317,9 @@ def _vm_import_impl(
                 serial_console=bool(specs["serial_console"]),
                 cpu_mode="host-passthrough",
                 guest_agent=True,
-                os_type=(
-                    str(specs.get("os_type", "generic"))
-                    if str(specs.get("os_type", "generic"))
-                    in {"windows", "linux", "hypervisor", "generic"}
-                    else "generic"
+                os_type=spec_os_type,
+                clock_offset=(
+                    "localtime" if spec_os_type == "windows" else "utc"
                 ),
             )
             _apply_custom_firmware(spec)
@@ -4624,8 +4810,13 @@ def clone_create(
                         path=disk["source"],
                         bus=disk["bus"] or template.disk_bus,
                         target=disk["target"],
+                        boot=(
+                            1
+                            if clone_firmware == "efi" and index == 0
+                            else 0
+                        ),
                     )
-                    for disk in item["disks"]
+                    for index, disk in enumerate(item["disks"])
                 ]
                 if item.get("cloud_init_iso"):
                     data_disks.append(
@@ -4694,6 +4885,9 @@ def clone_create(
                     tpm=template.tpm,
                     os_type=(
                         "windows" if template_os == "windows" else "linux"
+                    ),
+                    clock_offset=(
+                        "localtime" if template_os == "windows" else "utc"
                     ),
                 )
                 secure_requested = spec.secure_boot
@@ -5088,6 +5282,9 @@ def vm_create_from_iso(
                     if os_type in {"windows", "linux", "hypervisor", "generic"}
                     else "generic"
                 ),
+                clock_offset=(
+                    "localtime" if os_type == "windows" else "utc"
+                ),
             )
             secure_requested = spec.secure_boot
             secure_applied = _apply_custom_firmware(spec)
@@ -5205,6 +5402,1544 @@ def vm_clipboard_set(
             )
         set_guest_clipboard(backend, domain, text)
     return {"domain": domain, "copied": True}
+
+
+def _seamless_base(state_dir: str | Path | None = None) -> Path:
+    if not state_dir:
+        return seamless_state_dir()
+    base = Path(state_dir).expanduser()
+    try:
+        resolved = base.resolve()
+    except OSError as exc:
+        raise ValidationError(f"Invalid seamless state directory: {exc}") from exc
+    if resolved.name != "seamless" or resolved.parent.name != "vemu":
+        raise ValidationError(
+            "The seamless state directory must end with "
+            "'vemu/seamless'."
+        )
+    return base
+
+
+def _shortcut_base(shortcut_dir: str | Path | None = None) -> Path:
+    if shortcut_dir:
+        return Path(shortcut_dir).expanduser()
+    return seamless_shortcuts.applications_dir()
+
+
+def _icon_base(shortcut_dir: str | Path | None = None) -> Path | None:
+    if not shortcut_dir:
+        return None
+    return (
+        Path(shortcut_dir).expanduser().parent
+        / "vemu"
+        / "seamless"
+        / "icons"
+    )
+
+
+def _seamless_state_path(
+    domain: str, state_dir: str | Path | None = None
+) -> Path:
+    return _seamless_base(state_dir) / f"{domain}.json"
+
+
+def _load_seamless_state(
+    domain: str, state_dir: str | Path | None = None
+) -> dict[str, Any] | None:
+    path = _seamless_state_path(domain, state_dir)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise VemuError(
+            f"Cannot read seamless state for '{domain}': {exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise VemuError(f"Invalid seamless state for '{domain}'.")
+    return data
+
+
+ROLLBACK_VERSION = 1
+
+
+def _rollback_manifest_path(
+    domain: str, state_dir: str | Path | None = None
+) -> Path:
+    return _seamless_base(state_dir) / f"{domain}.rollback.json"
+
+
+def _load_rollback_manifest(
+    domain: str, state_dir: str | Path | None = None
+) -> dict[str, Any] | None:
+    path = _rollback_manifest_path(domain, state_dir)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise VemuError(
+            f"Cannot read seamless rollback manifest for '{domain}': {exc}"
+        ) from exc
+    return data if isinstance(data, dict) else None
+
+
+def _write_rollback_manifest(
+    domain: str,
+    payload: dict[str, Any],
+    state_dir: str | Path | None = None,
+) -> Path:
+    path = _rollback_manifest_path(domain, state_dir)
+    write_seamless_state(path, payload)
+    return path
+
+
+def _delete_rollback_manifest(
+    domain: str, state_dir: str | Path | None = None
+) -> bool:
+    try:
+        _rollback_manifest_path(domain, state_dir).unlink()
+    except OSError:
+        return False
+    return True
+
+
+def _invalidate_seamless_rollback(
+    domain: str,
+    reason: str,
+    state_dir: str | Path | None = None,
+) -> None:
+    """Forget a checkpoint after its layer is deliberately removed."""
+    _delete_rollback_manifest(domain, state_dir)
+    saved = _load_seamless_state(domain, state_dir)
+    if not saved:
+        return
+    saved.pop("rollback", None)
+    saved["rollback_invalidated_at"] = datetime.now(timezone.utc).isoformat()
+    saved["rollback_invalidated_reason"] = reason
+    write_seamless_state(
+        _seamless_state_path(domain, state_dir), saved
+    )
+
+
+def _seamless_state_dirs(
+    state_dir: str | Path | None = None,
+) -> list[Path]:
+    if state_dir:
+        return [_seamless_base(state_dir)]
+    bases: list[Path] = []
+    try:
+        bases.append(_seamless_base())
+    except VemuError:
+        pass
+    # The daemon runs as root and may not have the desktop user's HOME. The
+    # UI passes its state dir for normal operations; snapshot protection also
+    # needs to find existing user state on this single-user host.
+    for candidate in Path("/home").glob(
+        "*/.local/state/vemu/seamless"
+    ):
+        bases.append(candidate)
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for base in bases:
+        resolved = base.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(base)
+    return unique
+
+
+def _seamless_rollback_manifests(
+    state_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    manifests: list[dict[str, Any]] = []
+    for base in _seamless_state_dirs(state_dir):
+        for path in sorted(base.glob("*.rollback.json")):
+            domain = path.name[: -len(".rollback.json")]
+            try:
+                data = _load_rollback_manifest(domain, base)
+            except VemuError:
+                continue
+            if data:
+                data.setdefault("domain", domain)
+                manifests.append(data)
+    return manifests
+
+
+def _seamless_rollback_for_layer(
+    domain: str, layer: str, state_dir: str | Path | None = None
+) -> dict[str, Any] | None:
+    candidates = _seamless_state_dirs(state_dir)
+    for base in candidates:
+        manifest = _load_rollback_manifest(domain, base)
+        if manifest:
+            break
+    else:
+        manifest = None
+    if not manifest:
+        for base in candidates:
+            saved = _load_seamless_state(domain, base) or {}
+            rollback = saved.get("rollback")
+            if isinstance(rollback, dict):
+                manifest = {"domain": domain, **rollback}
+                break
+    if not manifest:
+        return None
+    return manifest if str(manifest.get("layer", "")) == str(layer) else None
+
+
+def _seamless_guest_ip(
+    backend: LibvirtBackend,
+    domain: str,
+) -> str:
+    for addresses in _guest_ip_map(backend, domain).values():
+        for address in addresses:
+            if address and not address.startswith("127."):
+                return address
+    raise Conflict(
+        f"No IPv4 address for '{domain}' from the QEMU guest agent; "
+        "start the VM and pass --ip if the address is not advertised."
+    )
+
+
+def _recover_orphan_rollback(
+    domain: str,
+    backend: LibvirtBackend,
+    *,
+    state_dir: str | Path | None,
+    saved: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Reuse a checkpoint left by a failed prepare instead of duplicating it."""
+    try:
+        chain_dir = _chain_dir_for_domain(backend, domain)
+        info = ChainManager(chain_dir).info()
+    except VemuError:
+        return None
+    layers = [
+        layer
+        for layer in info.get("layers") or []
+        if isinstance(layer, dict)
+        and str(layer.get("label") or "") == "seamless-prepare"
+        and not layer.get("active")
+    ]
+    if not layers:
+        return None
+    layer = min(
+        layers,
+        key=lambda item: (
+            str(item.get("created_at") or ""),
+            str(item.get("id") or ""),
+        ),
+    )
+    layer_id = str(layer.get("id") or "")
+    if not layer_id:
+        return None
+    base = _seamless_base(state_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    xml_path = base / f"{domain}.domain.xml"
+    if xml_path.is_file():
+        xml = xml_path.read_text(encoding="utf-8")
+    else:
+        xml = backend.config_xml(domain)
+        xml_path.write_text(xml, encoding="utf-8")
+        try:
+            os.chmod(xml_path, 0o600)
+        except OSError:
+            pass
+    manifest = {
+        "version": ROLLBACK_VERSION,
+        "domain": domain,
+        "stage": "pre-existing" if saved else "pre-prepare",
+        "layer": layer_id,
+        "label": str(layer.get("label") or "seamless-prepare"),
+        "created_at": str(
+            layer.get("created_at") or datetime.now(timezone.utc).isoformat()
+        ),
+        "xml_backup": str(xml_path),
+        "xml_sha256": hashlib.sha256(xml.encode("utf-8")).hexdigest(),
+        "chain": str(chain_dir),
+        "base": str(info.get("base", "")),
+    }
+    _write_rollback_manifest(domain, manifest, state_dir)
+    return manifest
+
+
+def _ensure_seamless_rollback(
+    domain: str,
+    backend: LibvirtBackend,
+    *,
+    state_dir: str | Path | None,
+    uri: str,
+) -> dict[str, Any] | None:
+    """Snapshot the guest before the helper changes it for the first time."""
+    existing = _load_rollback_manifest(domain, state_dir)
+    if existing:
+        return existing
+
+    saved = _load_seamless_state(domain, state_dir) or {}
+    recovered = _recover_orphan_rollback(
+        domain, backend, state_dir=state_dir, saved=saved
+    )
+    if recovered:
+        return recovered
+
+    info = backend.info(domain)
+    was_running = info.state == "running"
+
+    pid_path, _log = supervisor_paths(
+        _seamless_base(state_dir), domain
+    )
+    stop_supervisor(pid_path)
+    if saved:
+        try:
+            stop_seed(_seamless_ssh(saved))
+        except VemuError:
+            pass
+
+    if was_running:
+        backend.shutdown(domain, timeout=120)
+    if backend.info(domain).state != "stopped":
+        raise Conflict(
+            f"Domain '{domain}' must be shut down before creating the "
+            "seamless rollback checkpoint."
+        )
+
+    xml = backend.config_xml(domain)
+    base = _seamless_base(state_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    xml_path = base / f"{domain}.domain.xml"
+    xml_path.write_text(xml, encoding="utf-8")
+    try:
+        os.chmod(xml_path, 0o600)
+    except OSError:
+        pass
+
+    try:
+        snapshot = snapshots_create(
+            domain,
+            label="seamless-prepare",
+            description=(
+                f"v-EMU seamless rollback checkpoint for {domain} "
+                f"({datetime.now(timezone.utc).isoformat()})"
+            ),
+            uri=uri,
+        )
+    except VemuError as exc:
+        if was_running:
+            try:
+                backend.start(domain)
+            except VemuError:
+                pass
+        raise Conflict(
+            "Cannot create the seamless rollback checkpoint: "
+            f"{exc}. The VM must use a v-EMU-managed qcow2 chain."
+        ) from exc
+
+    layer = snapshot.get("layer") or {}
+    layer_id = str(layer.get("id", ""))
+    if not layer_id:
+        raise Conflict("Snapshot creation did not return a layer id.")
+    manifest = {
+        "version": ROLLBACK_VERSION,
+        "domain": domain,
+        "stage": "pre-existing" if saved else "pre-prepare",
+        "layer": layer_id,
+        "label": str(layer.get("label") or "seamless-prepare"),
+        "created_at": str(
+            layer.get("created_at") or datetime.now(timezone.utc).isoformat()
+        ),
+        "xml_backup": str(xml_path),
+        "xml_sha256": hashlib.sha256(xml.encode("utf-8")).hexdigest(),
+        "chain": str(snapshot.get("chain", "")),
+        "base": str(snapshot.get("base", "")),
+    }
+    _write_rollback_manifest(domain, manifest, state_dir)
+
+    try:
+        backend.start(domain)
+    except VemuError:
+        raise
+    transport = QGATransport(backend, domain)
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        if transport.ping():
+            return manifest
+        time.sleep(2)
+    raise Conflict(
+        "The guest did not become reachable after the rollback checkpoint; "
+        "the VM was started but the checkpoint remains available."
+    )
+
+
+def vm_seamless_prepare(
+    domain: str,
+    username: str,
+    *,
+    profile: str = "Safe",
+    apps: dict[str, str] | None = None,
+    guest_ip: str | None = None,
+    user_hive: str | None = None,
+    state_dir: str | Path | None = None,
+    shortcut_dir: str | Path | None = None,
+    uri: str = "qemu:///system",
+    snapshot: bool = True,
+    owner_uid: int | None = None,
+    desktop: str | None = None,
+) -> dict[str, Any]:
+    """Prepare a Windows guest for seamless apps and keep a rollback checkpoint."""
+    freerdp = ensure_freerdp_compatible()
+    with LibvirtBackend(uri) as backend:
+        info = backend.info(domain)
+        video = parse_config(backend.config_xml(domain)).get("video", "")
+        if video not in SEAMLESS_VIDEO_MODELS:
+            raise Conflict(
+                f"Seamless mode requires QXL/VGA, but '{domain}' uses "
+                f"video '{video or 'unknown'}'. Stop the VM, run "
+                f"'vemu seamless video {domain} --model qxl', then start it "
+                "again. Do not use the experimental 3D driver with RemoteApp."
+            )
+        manifest: dict[str, Any] | None = None
+        if snapshot:
+            manifest = _ensure_seamless_rollback(
+                domain,
+                backend,
+                state_dir=state_dir,
+                uri=uri,
+            )
+        elif info.state != "running":
+            raise Conflict(
+                f"Domain '{domain}' must be running for seamless setup."
+            )
+        info = backend.info(domain)
+        if info.state != "running":
+            raise Conflict(
+                f"Domain '{domain}' must be running for seamless setup."
+            )
+        transport = QGATransport(backend, domain)
+        if not transport.ping():
+            raise Conflict(
+                "The QEMU guest agent is not responding. Install and start "
+                "the agent before enabling seamless mode."
+            )
+        host = guest_ip or _seamless_guest_ip(backend, domain)
+        if apps is None:
+            existing = _load_seamless_state(domain, state_dir) or {}
+            previous = existing.get("apps") or existing.get("last_apps") or []
+            apps = {
+                str(item.get("name")): item
+                for item in previous
+                if isinstance(item, dict)
+                and item.get("name")
+                and item.get("path")
+            }
+        base = _seamless_base(state_dir)
+        plan = SeamlessPrepare(
+            host=host,
+            username=username,
+            domain=domain,
+            profile=profile,
+            apps=apps or {},
+            user_hive=user_hive,
+            video=video,
+            key_path=base / f"{domain}.id_ed25519",
+            known_hosts=base / f"{domain}.known_hosts",
+            state_path=base / f"{domain}.json",
+            owner_uid=owner_uid,
+        )
+        state = prepare_seamless(transport, plan)
+        installed = []
+        warnings = []
+        for item in state.get("apps") or []:
+            icon = seamless_icons.extract(
+                transport,
+                str(item.get("path", "")),
+                domain,
+                str(item.get("name", "")),
+                directory=_icon_base(shortcut_dir),
+            )
+            if icon is not None:
+                item["icon"] = str(icon)
+            try:
+                shortcut = seamless_shortcuts.install(
+                    domain,
+                    item,
+                    directory=shortcut_dir,
+                    desktop=desktop,
+                )
+                item["shortcut"] = str(shortcut)
+                installed.append(str(shortcut))
+            except (VemuError, OSError) as exc:
+                warnings.append(f"shortcut {item.get('name')}: {exc}")
+        state["shortcuts"] = installed
+        state["freerdp"] = freerdp.as_dict()
+        # A shortcut written while GNOME was active keeps
+        # StartupWMClass=RAIL and can make KDE show another app's icon for
+        # every RAIL window. Repair all v-EMU shortcuts, not just this domain.
+        seamless_shortcuts.repair(directory=shortcut_dir, desktop=desktop)
+        state["desktop"] = seamless_shortcuts.desktop_family(desktop)
+        if manifest:
+            state["rollback"] = manifest
+        if warnings:
+            state["warnings"] = warnings
+        write_seamless_state(base / f"{domain}.json", state)
+        return state
+
+
+def _remove_seamless_host_artifacts(
+    domain: str,
+    *,
+    state_dir: str | Path | None,
+    shortcut_dir: str | Path | None,
+    saved: dict[str, Any] | None,
+    forget_password: bool = False,
+) -> dict[str, Any]:
+    """Remove host shortcuts, icons, state and generated rail files."""
+    removed_shortcuts = [
+        str(path)
+        for path in seamless_shortcuts.remove_all(
+            domain, directory=shortcut_dir
+        )
+    ]
+    removed_icons = [
+        str(path)
+        for path in seamless_icons.remove_all(
+            domain, directory=_icon_base(shortcut_dir)
+        )
+    ]
+    base = _seamless_base(state_dir)
+    removed_files: list[str] = []
+    for pattern in (
+        f"{domain}.rail.pid",
+        f"{domain}.rail.log",
+        f"{domain}.rail.meta.json",
+        f"{domain}.rail.watch.log",
+        f"{domain}.json",
+        f"{domain}.domain.xml",
+        f"{domain}.rollback.json",
+    ):
+        path = base / pattern
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed_files.append(str(path))
+    if saved:
+        for key_name in ("key_path", "known_hosts"):
+            value = saved.get(key_name)
+            if not value:
+                continue
+            path = Path(str(value))
+            for candidate in (path, Path(str(path) + ".pub")):
+                try:
+                    candidate.unlink()
+                except OSError:
+                    continue
+                removed_files.append(str(candidate))
+        if forget_password:
+            username = str(saved.get("username") or "")
+            if username:
+                try:
+                    credentials.delete_password(domain, username)
+                except VemuError:
+                    pass
+    return {
+        "removed_shortcuts": removed_shortcuts,
+        "removed_icons": removed_icons,
+        "removed_files": removed_files,
+    }
+
+
+def _cleanup_deleted_host_state(
+    domain: str,
+    *,
+    state_dir: str | Path | None,
+    shortcut_dir: str | Path | None,
+    purge_state: bool,
+) -> dict[str, Any]:
+    """Remove host artifacts after domain_delete has undefined the VM."""
+    warnings: list[str] = []
+    try:
+        saved = _load_seamless_state(domain, state_dir)
+    except VemuError as exc:
+        saved = None
+        warnings.append(str(exc))
+
+    supervisor_stopped = 0
+    seeds_stopped = 0
+    try:
+        base = _seamless_base(state_dir)
+        pid_path, _log = supervisor_paths(base, domain)
+        supervisor_stopped = 1 if stop_supervisor(pid_path) else 0
+        if saved:
+            try:
+                seeds_stopped = stop_seed(_seamless_ssh(saved))
+            except VemuError:
+                seeds_stopped = 0
+    except VemuError as exc:
+        warnings.append(str(exc))
+
+    if purge_state:
+        seamless = _remove_seamless_host_artifacts(
+            domain,
+            state_dir=state_dir,
+            shortcut_dir=shortcut_dir,
+            saved=saved,
+            forget_password=True,
+        )
+    else:
+        removed_shortcuts = [
+            str(path)
+            for path in seamless_shortcuts.remove_all(
+                domain, directory=shortcut_dir
+            )
+        ]
+        removed_icons = [
+            str(path)
+            for path in seamless_icons.remove_all(
+                domain, directory=_icon_base(shortcut_dir)
+            )
+        ]
+        removed_files: list[str] = []
+        try:
+            base = _seamless_base(state_dir)
+            for pattern in (
+                f"{domain}.rail.pid",
+                f"{domain}.rail.log",
+                f"{domain}.rail.meta.json",
+                f"{domain}.rail.watch.log",
+            ):
+                path = base / pattern
+                try:
+                    path.unlink()
+                except OSError:
+                    continue
+                removed_files.append(str(path))
+        except VemuError as exc:
+            warnings.append(str(exc))
+        seamless = {
+            "removed_shortcuts": removed_shortcuts,
+            "removed_icons": removed_icons,
+            "removed_files": removed_files,
+        }
+
+    try:
+        from . import experimental3d
+
+        experimental = experimental3d.cleanup_deleted(
+            domain, purge_state=purge_state
+        )
+    except VemuError as exc:
+        experimental = {"warnings": [str(exc)]}
+    warnings.extend(str(item) for item in experimental.get("warnings") or [])
+    return {
+        "seamless": seamless,
+        "experimental3d": experimental,
+        "supervisor_stopped": supervisor_stopped,
+        "seeds_stopped": seeds_stopped,
+        "warnings": warnings,
+    }
+
+
+def vm_seamless_rollback(
+    domain: str,
+    *,
+    state_dir: str | Path | None = None,
+    shortcut_dir: str | Path | None = None,
+    uri: str = "qemu:///system",
+    host_only: bool = False,
+    force: bool = False,
+    forget_password: bool = False,
+) -> dict[str, Any]:
+    """Restore the pre-prepare checkpoint and remove host-side shortcuts.
+
+    ``host_only`` removes the v-EMU state/shortcuts/icons while leaving the
+    guest untouched; it is the recovery path when a snapshot was deleted or
+    compacted outside v-EMU.
+    """
+    manifest = _load_rollback_manifest(domain, state_dir)
+    saved = _load_seamless_state(domain, state_dir)
+    if not manifest and not host_only:
+        raise Conflict(
+            f"No seamless rollback checkpoint for '{domain}'. "
+            "Use --host-only to remove only the host-side shortcuts/state."
+        )
+
+    pid_path, _log = supervisor_paths(
+        _seamless_base(state_dir), domain
+    )
+    supervisor_stopped = stop_supervisor(pid_path)
+    seeds_stopped = 0
+    if saved:
+        try:
+            seeds_stopped = stop_seed(_seamless_ssh(saved))
+        except VemuError:
+            seeds_stopped = 0
+
+    reverted = False
+    layer = ""
+    if not host_only:
+        assert manifest is not None
+        layer = str(manifest.get("layer") or "")
+        xml_backup = Path(str(manifest.get("xml_backup") or ""))
+        if not layer:
+            raise Conflict("The seamless rollback manifest has no layer id.")
+        if not xml_backup.is_file():
+            raise Conflict(
+                f"The XML backup for '{domain}' is missing: {xml_backup}. "
+                "Use --host-only to remove host state without restoring."
+            )
+        xml = xml_backup.read_text(encoding="utf-8")
+        expected = str(manifest.get("xml_sha256") or "")
+        actual = hashlib.sha256(xml.encode("utf-8")).hexdigest()
+        if expected and actual != expected and not force:
+            raise Conflict(
+                "The seamless XML backup checksum does not match. "
+                "Re-run with --force if the file was intentionally edited."
+            )
+        with LibvirtBackend(uri) as backend:
+            info = backend.info(domain)
+            if info.state == "running":
+                backend.shutdown(domain, timeout=120, force=force)
+            if backend.info(domain).state != "stopped":
+                raise Conflict(
+                    f"Domain '{domain}' must be stopped before rollback."
+                )
+            before = backend.config_xml(domain)
+            try:
+                backend.redefine_domain(domain, xml)
+                snapshots_revert(domain, layer, uri=uri)
+            except Exception as exc:
+                try:
+                    backend.redefine_domain(domain, before)
+                except VemuError:
+                    pass
+                raise Conflict(
+                    f"Cannot restore the seamless checkpoint '{layer}' for "
+                    f"'{domain}': {exc}. The host state was kept; the "
+                    "snapshot may have been deleted or compacted."
+                ) from exc
+        reverted = True
+
+    cleanup = _remove_seamless_host_artifacts(
+        domain,
+        state_dir=state_dir,
+        shortcut_dir=shortcut_dir,
+        saved=saved,
+        forget_password=forget_password,
+    )
+    return {
+        "domain": domain,
+        "reverted": reverted,
+        "host_only": host_only,
+        "layer": layer,
+        "supervisor_stopped": supervisor_stopped,
+        "seeds_stopped": seeds_stopped,
+        "started": False,
+        **cleanup,
+    }
+
+
+def vm_seamless_video(
+    domain: str,
+    *,
+    model: str = "qxl",
+    uri: str = "qemu:///system",
+) -> dict[str, Any]:
+    """Set the Windows video model used by seamless mode.
+
+    The change is written to the persistent XML; a running VM must restart
+    before the new model is active.
+    """
+    if model not in SEAMLESS_VIDEO_MODELS:
+        raise ValidationError("Seamless video model must be qxl or vga.")
+    info = vm_config_info(domain, uri)
+    current = str(info["config"].get("video", ""))
+    if current == model:
+        return {
+            "domain": domain,
+            "video": current,
+            "changed": False,
+            "restart_required": False,
+        }
+    result = vm_config_update(
+        domain,
+        video=model,
+        video_memory_mib=64 if model == "qxl" else None,
+        uri=uri,
+    )
+    return {
+        "domain": domain,
+        "video": model,
+        "previous": current,
+        "changed": True,
+        "restart_required": bool(result.get("pending_restart")),
+        "warnings": result.get("warnings") or [],
+    }
+
+
+def vm_seamless_state(
+    domain: str,
+    *,
+    state_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Return the quick saved activation state without touching the guest."""
+    saved = _load_seamless_state(domain, state_dir)
+    return {
+        "domain": domain,
+        "prepared": bool(saved),
+        "active": bool(saved.get("active", True)) if saved else False,
+        "state": saved,
+        "rollback": _load_rollback_manifest(domain, state_dir),
+    }
+
+
+def vm_seamless_deactivate(
+    domain: str,
+    *,
+    state_dir: str | Path | None = None,
+    shortcut_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Stop publishing seamless programs but keep the guest plumbing.
+
+    The guest optimization, SSH key and RDP setup stay in place so the user
+    can reactivate quickly. Published programs are cleared; shortcuts built
+    from the old list must disappear with it. The list is retained as
+    ``last_apps`` so a later ``prepare`` can republish the same programs
+    without retyping them.
+    """
+    saved = _load_seamless_state(domain, state_dir)
+    if not saved:
+        raise Conflict(
+            f"No seamless state for '{domain}'. It is not activated."
+        )
+    removed = [
+        str(item.get("name", ""))
+        for item in saved.get("apps") or []
+        if isinstance(item, dict)
+    ]
+    saved["last_apps"] = [
+        dict(item)
+        for item in saved.get("apps") or []
+        if isinstance(item, dict)
+    ]
+    saved["active"] = False
+    saved["deactivated_at"] = datetime.now(timezone.utc).isoformat()
+    saved["apps"] = []
+    write_seamless_state(_seamless_state_path(domain, state_dir), saved)
+    removed_shortcuts = [
+        str(path)
+        for path in seamless_shortcuts.remove_all(
+            domain, directory=shortcut_dir
+        )
+    ]
+    for name in removed:
+        seamless_icons.remove(
+            domain, name, directory=_icon_base(shortcut_dir)
+        )
+    pid_path, _log = supervisor_paths(_seamless_base(state_dir), domain)
+    stopped = stop_supervisor(pid_path)
+    try:
+        stop_seed(_seamless_ssh(saved))
+    except VemuError:
+        pass
+    return {
+        "domain": domain,
+        "active": False,
+        "removed_apps": removed,
+        "removed_shortcuts": removed_shortcuts,
+        "supervisor_stopped": stopped,
+        "note": (
+            "Guest optimization, SSH and RDP remain installed for fast "
+            "reactivation. No seamless program is published now."
+        ),
+    }
+
+
+def vm_seamless_status(
+    domain: str,
+    *,
+    state_dir: str | Path | None = None,
+    uri: str = "qemu:///system",
+) -> dict[str, Any]:
+    """Return the saved seamless state and a live preflight when possible."""
+    saved = _load_seamless_state(domain, state_dir)
+    try:
+        freerdp = freerdp_status().as_dict()
+    except VemuError as exc:
+        freerdp = {
+            "binary": "",
+            "version": "",
+            "level": "unavailable",
+            "message": str(exc),
+        }
+    with LibvirtBackend(uri) as backend:
+        info = backend.info(domain)
+        running = info.state == "running"
+        live: dict[str, Any] | None = None
+        error: str | None = None
+        if running:
+            transport = QGATransport(backend, domain)
+            if transport.ping():
+                try:
+                    live = seamless_preflight(transport)
+                except VemuError as exc:
+                    error = str(exc)
+    return {
+        "domain": domain,
+        "prepared": bool(saved),
+        "active": bool(saved.get("active", True)) if saved else False,
+        "running": running,
+        "state": saved,
+        "rollback": _load_rollback_manifest(domain, state_dir),
+        "freerdp": freerdp,
+        "preflight": live,
+        "preflight_error": error,
+    }
+
+
+def vm_seamless_refresh_host(
+    domain: str,
+    *,
+    state_dir: str | Path | None = None,
+    uri: str = "qemu:///system",
+) -> dict[str, Any]:
+    """Refresh the saved guest IP and pinned SSH host key when it changes."""
+    saved = _load_seamless_state(domain, state_dir)
+    if not saved:
+        raise Conflict(f"No seamless state for '{domain}'.")
+    with LibvirtBackend(uri) as backend:
+        info = backend.info(domain)
+        if info.state != "running":
+            return {
+                "domain": domain,
+                "changed": False,
+                "host": saved.get("host"),
+                "reason": "VM is not running",
+            }
+        host = _seamless_guest_ip(backend, domain)
+    old = str(saved.get("host", ""))
+    if host == old:
+        return {"domain": domain, "changed": False, "host": host}
+    known_hosts = saved.get("known_hosts")
+    if not known_hosts:
+        raise Conflict("The seamless state has no known_hosts path.")
+    scan_host_key(host, Path(str(known_hosts)))
+    saved["host"] = host
+    saved["host_updated_at"] = datetime.now(timezone.utc).isoformat()
+    write_seamless_state(_seamless_state_path(domain, state_dir), saved)
+    return {
+        "domain": domain,
+        "changed": True,
+        "previous": old,
+        "host": host,
+    }
+
+
+def _seamless_ssh(saved: dict[str, Any]) -> SSHTransport:
+    username = str(saved.get("username", ""))
+    host = str(saved.get("host", ""))
+    key_path = saved.get("key_path")
+    known_hosts = saved.get("known_hosts")
+    if not username or not host or not key_path or not known_hosts:
+        raise Conflict("Seamless state is incomplete; run prepare again.")
+    return SSHTransport(
+        host, username, Path(str(key_path)), Path(str(known_hosts))
+    )
+
+
+def vm_seamless_apps(
+    domain: str,
+    *,
+    include_system: bool = False,
+    include_store: bool = False,
+    state_dir: str | Path | None = None,
+    uri: str = "qemu:///system",
+) -> dict[str, Any]:
+    """List resolvable Start-menu apps through the prepared SSH session."""
+    try:
+        vm_seamless_refresh_host(domain, state_dir=state_dir, uri=uri)
+    except VemuError:
+        pass
+    saved = _load_seamless_state(domain, state_dir)
+    if not saved:
+        raise Conflict(
+            f"No seamless state for '{domain}'. Run 'vemu seamless prepare'."
+        )
+    with LibvirtBackend(uri) as backend:
+        info = backend.info(domain)
+        if info.state != "running":
+            raise Conflict(
+                f"Domain '{domain}' must be running to list apps."
+            )
+    transport = _seamless_ssh(saved)
+    apps = []
+    for entry in discover_start_menu_apps(
+        transport,
+        include_system=include_system,
+        include_store=include_store,
+    ):
+        item = entry.to_dict()
+        item["software_gpu"] = entry.software_gpu
+        item["launch_arguments"] = entry.launch_arguments
+        apps.append(item)
+    return {
+        "domain": domain,
+        "username": saved.get("username"),
+        "apps": apps,
+        "include_store": include_store,
+    }
+
+
+def vm_seamless_refresh_apps(
+    domain: str,
+    *,
+    include_system: bool = False,
+    include_store: bool = False,
+    state_dir: str | Path | None = None,
+    uri: str = "qemu:///system",
+) -> dict[str, Any]:
+    """Discover installed programs and compare them with published shortcuts."""
+    try:
+        vm_seamless_refresh_host(domain, state_dir=state_dir, uri=uri)
+    except VemuError:
+        pass
+    saved = _load_seamless_state(domain, state_dir)
+    if not saved:
+        raise Conflict(
+            f"No seamless state for '{domain}'. Run 'vemu seamless prepare'."
+        )
+    with LibvirtBackend(uri) as backend:
+        info = backend.info(domain)
+        if info.state != "running":
+            raise Conflict(
+                f"Domain '{domain}' must be running to refresh programs."
+            )
+    transport = _seamless_ssh(saved)
+    available = []
+    for entry in discover_start_menu_apps(
+        transport,
+        include_system=include_system,
+        include_store=include_store,
+    ):
+        item = entry.to_dict()
+        item["software_gpu"] = entry.software_gpu
+        item["launch_arguments"] = entry.launch_arguments
+        available.append(item)
+    published = [
+        item for item in saved.get("apps") or [] if isinstance(item, dict)
+    ]
+    found = published_by_name(available)
+    existing = published_by_name(published)
+    missing = [
+        item
+        for name, item in existing.items()
+        if name not in found
+        and (
+            include_store
+            or not store_aumid(str(item.get("arguments") or ""))
+        )
+    ]
+    new = [
+        item for name, item in found.items() if name not in existing
+    ]
+    saved["available_apps"] = available
+    saved["last_refresh"] = datetime.now(timezone.utc).isoformat()
+    write_seamless_state(_seamless_state_path(domain, state_dir), saved)
+    return {
+        "domain": domain,
+        "available": available,
+        "published": published,
+        "missing": missing,
+        "new": new,
+        "include_system": include_system,
+        "include_store": include_store,
+    }
+
+
+def vm_seamless_add_app(
+    domain: str,
+    name: str,
+    path: str,
+    *,
+    arguments: str = "",
+    compat: bool = True,
+    verified: bool = False,
+    state_dir: str | Path | None = None,
+    shortcut_dir: str | Path | None = None,
+    uri: str = "qemu:///system",
+    desktop: str | None = None,
+) -> dict[str, Any]:
+    """Add one executable to the allowlist and the published shortcut list."""
+    combined = (
+        with_compat_arguments(path, arguments) if compat else arguments
+    )
+    saved_state = _load_seamless_state(domain, state_dir) or {}
+    desktop = desktop or str(saved_state.get("desktop") or "") or None
+    with LibvirtBackend(uri) as backend:
+        info = backend.info(domain)
+        if info.state != "running":
+            raise Conflict(
+                f"Domain '{domain}' must be running to add a RemoteApp."
+            )
+        transport = QGATransport(backend, domain)
+        if not transport.ping():
+            raise Conflict("The QEMU guest agent is not responding.")
+        app = seamless_add_remoteapp_app(
+            transport,
+            name,
+            path,
+            required_command_line=combined,
+        )
+    entry = {
+        "name": name.strip(),
+        "path": path.strip(),
+        "arguments": combined,
+        "verified": bool(verified),
+    }
+    if store_aumid(combined):
+        try:
+            ensure_activator(transport)
+        except VemuError:
+            pass
+    icon = seamless_icons.extract_store(
+        transport,
+        combined,
+        domain,
+        name.strip(),
+        directory=_icon_base(shortcut_dir),
+    )
+    if icon is None:
+        icon = seamless_icons.extract(
+            transport,
+            path.strip(),
+            domain,
+            name.strip(),
+            directory=_icon_base(shortcut_dir),
+        )
+    if icon is not None:
+        entry["icon"] = str(icon)
+    shortcut_error = ""
+    try:
+        entry["shortcut"] = str(
+            seamless_shortcuts.install(
+                domain,
+                entry,
+                directory=shortcut_dir,
+                desktop=desktop,
+            )
+        )
+    except (VemuError, OSError) as exc:
+        shortcut_error = str(exc)
+    seamless_shortcuts.repair(directory=shortcut_dir, desktop=desktop)
+    saved = _load_seamless_state(domain, state_dir)
+    if saved:
+        apps = [
+            item
+            for item in saved.get("apps") or []
+            if str(item.get("name", "")).casefold() != entry["name"].casefold()
+        ]
+        apps.append(entry)
+        saved["apps"] = apps
+        write_seamless_state(_seamless_state_path(domain, state_dir), saved)
+    result = {"domain": domain, "app": app, "entry": entry}
+    if shortcut_error:
+        result["warning"] = f"Shortcut not created: {shortcut_error}"
+    return result
+
+
+def vm_seamless_remove_app(
+    domain: str,
+    name: str,
+    *,
+    state_dir: str | Path | None = None,
+    shortcut_dir: str | Path | None = None,
+    uri: str = "qemu:///system",
+) -> dict[str, Any]:
+    """Remove one program from the allowlist and the published shortcut list."""
+    removed = False
+    warning = ""
+    with LibvirtBackend(uri) as backend:
+        info = backend.info(domain)
+        if info.state == "running":
+            transport = QGATransport(backend, domain)
+            if transport.ping():
+                removed = bool(
+                    seamless_remove_remoteapp_app(transport, name)["removed"]
+                )
+            else:
+                warning = (
+                    "The guest agent is not responding; the shortcut was "
+                    "removed from v-EMU state but the guest allowlist was "
+                    "not changed."
+                )
+        else:
+            warning = (
+                "The VM is stopped; the shortcut was removed from v-EMU "
+                "state. Start the VM and run remove again to update the "
+                "guest allowlist."
+            )
+    shortcut_removed = seamless_shortcuts.remove(
+        domain, name.strip(), directory=shortcut_dir
+    )
+    seamless_icons.remove(
+        domain, name.strip(), directory=_icon_base(shortcut_dir)
+    )
+    saved = _load_seamless_state(domain, state_dir)
+    state_removed = False
+    if saved:
+        apps = [
+            item
+            for item in saved.get("apps") or []
+            if str(item.get("name", "")).casefold() != name.strip().casefold()
+        ]
+        state_removed = len(apps) != len(saved.get("apps") or [])
+        saved["apps"] = apps
+        write_seamless_state(_seamless_state_path(domain, state_dir), saved)
+    return {
+        "domain": domain,
+        "name": name.strip(),
+        "allowlist_removed": removed,
+        "state_removed": state_removed,
+        "shortcut_removed": shortcut_removed,
+        "warning": warning,
+    }
+
+
+def vm_seamless_test_app(
+    domain: str,
+    name: str,
+    password: str,
+    *,
+    timeout: float = 30,
+    settle: float = 8,
+    display: str | None = None,
+    multimon: bool = False,
+    audio_latency: int = 200,
+    audio_quality: str = "dynamic",
+    state_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Launch one app over a temporary RAIL connection for compatibility.
+
+    This must run in the desktop user's session, not the root daemon.
+    """
+    try:
+        vm_seamless_refresh_host(domain, state_dir=state_dir)
+    except VemuError:
+        pass
+    saved = _load_seamless_state(domain, state_dir)
+    if not saved:
+        raise Conflict(
+            f"No seamless state for '{domain}'. Run 'vemu seamless prepare'."
+        )
+    freerdp = ensure_freerdp_compatible()
+    published = published_by_name(
+        [item for item in saved.get("apps") or [] if isinstance(item, dict)]
+    )
+    entry = published.get(name.strip().casefold())
+    if not entry:
+        raise NotFound(f"No published program named '{name}'.")
+    stopped_others = _stop_other_supervisors(domain, state_dir)
+    screen = display or os.environ.get("DISPLAY", "")
+    if not screen:
+        raise Conflict(
+            "Test launch needs a desktop session. Run the command directly "
+            "in the user session (vemu --direct / the desktop app), not "
+            "through the root daemon."
+        )
+    arguments = str(entry.get("arguments") or "")
+    if not arguments:
+        arguments = with_compat_arguments(str(entry.get("path", "")))
+    cert = str(saved.get("rdp_cert_sha256") or "")
+    result = test_rail_app(
+        str(saved.get("host", "")),
+        str(saved.get("username", "")),
+        password,
+        str(entry.get("path", "")),
+        arguments,
+        timeout=timeout,
+        settle=settle,
+        display=screen,
+        cert=f"fingerprint:sha256:{cert}" if cert else "ignore",
+        multimon=multimon,
+        audio_latency=audio_latency,
+        audio_quality=audio_quality,
+    )
+    return {
+        "domain": domain,
+        "name": entry.get("name"),
+        "ok": result.ok,
+        "connected": result.connected,
+        "reason": result.reason,
+        "log": result.log,
+        "elapsed": round(result.elapsed, 1),
+        "freerdp": freerdp.as_dict(),
+        "stopped_other_supervisors": stopped_others,
+    }
+
+
+def _stop_other_supervisors(
+    domain: str,
+    state_dir: str | Path | None,
+) -> list[str]:
+    """Enforce the one-active-Windows-VM RAIL policy."""
+    stopped: list[str] = []
+    try:
+        base = _seamless_base(state_dir)
+    except VemuError:
+        return stopped
+    suffix = ".rail.pid"
+    for pid_path in sorted(base.glob("*" + suffix)):
+        other = pid_path.name[: -len(suffix)]
+        if not other or other == domain:
+            continue
+        try:
+            result = vm_seamless_stop(other, state_dir=state_dir)
+        except VemuError:
+            continue
+        if result.get("supervisor_stopped") or result.get("seeds_stopped"):
+            stopped.append(other)
+    return stopped
+
+
+def _launch_published_in_session(
+    ssh: SSHTransport,
+    username: str,
+    name: str,
+    program: str,
+    arguments: str,
+) -> tuple[dict[str, str], bool]:
+    """Launch a Store app through the direct COM activator when available."""
+    aumid = store_aumid(arguments)
+    if aumid:
+        try:
+            activator = ensure_activator(ssh)
+        except VemuError:
+            activator = None
+        if activator:
+            return (
+                launch_in_session(ssh, username, name, activator, aumid),
+                True,
+            )
+    return launch_in_session(ssh, username, name, program, arguments), False
+
+
+def vm_seamless_launch_app(
+    domain: str,
+    name: str,
+    *,
+    state_dir: str | Path | None = None,
+    display: str | None = None,
+    password: str | None = None,
+    multimon: bool = False,
+    audio_latency: int = 200,
+    audio_quality: str = "dynamic",
+) -> dict[str, Any]:
+    """Launch a published app through one supervisor or the existing session."""
+    try:
+        vm_seamless_refresh_host(domain, state_dir=state_dir)
+    except VemuError:
+        pass
+    saved = _load_seamless_state(domain, state_dir)
+    if not saved:
+        raise Conflict(
+            f"No seamless state for '{domain}'. Run 'vemu seamless prepare'."
+        )
+    if not saved.get("active", True):
+        raise Conflict(f"Seamless mode is deactivated for '{domain}'.")
+    freerdp = ensure_freerdp_compatible()
+    published = published_by_name(
+        [item for item in saved.get("apps") or [] if isinstance(item, dict)]
+    )
+    entry = published.get(name.strip().casefold())
+    if not entry:
+        raise NotFound(f"No published program named '{name}'.")
+    stopped_others = _stop_other_supervisors(domain, state_dir)
+    screen = display or os.environ.get("DISPLAY", "")
+    if not screen:
+        raise Conflict(
+            "Seamless launch needs a desktop session "
+            "(DISPLAY or a Wayland desktop)."
+        )
+    username = str(saved.get("username", ""))
+    host = str(saved.get("host", ""))
+    program = str(entry.get("path", ""))
+    arguments = str(entry.get("arguments") or "")
+    if not arguments:
+        arguments = with_compat_arguments(program)
+    base = _seamless_base(state_dir)
+    pid_path, log_path = supervisor_paths(base, domain)
+    pid = supervisor_pid(pid_path)
+    ssh = _seamless_ssh(saved)
+    if pid is not None:
+        launch_result, direct = _launch_published_in_session(
+            ssh, username, name, program, arguments
+        )
+        return {
+            "domain": domain,
+            "name": entry.get("name"),
+            "mode": "session",
+            "supervisor_pid": pid,
+            "stopped_other_supervisors": stopped_others,
+            "direct_activation": direct,
+            "freerdp": freerdp.as_dict(),
+            **launch_result,
+        }
+    secret = password or ""
+    if not secret:
+        secret = get_rdp_password(domain, username) or ""
+    if not secret:
+        raise Conflict(
+            "No saved RDP password. Run 'vemu seamless test-app "
+            f"{domain} {entry.get('name')} --save-password' first."
+        )
+    seeded = False
+    seed_error = ""
+    seed = None
+    try:
+        seed = ensure_seed(ssh)
+        seeded = True
+    except VemuError as exc:
+        seed_error = str(exc)
+    supervisor_program = (
+        str(seed["program"]) if seed else program
+    )
+    supervisor_arguments = (
+        str(seed["arguments"]) if seed else arguments
+    )
+    cert = str(saved.get("rdp_cert_sha256") or "")
+    pid = start_supervisor(
+        host,
+        username,
+        secret,
+        supervisor_program,
+        supervisor_arguments,
+        display=screen,
+        log_path=log_path,
+        pid_path=pid_path,
+        cert=f"fingerprint:sha256:{cert}" if cert else "ignore",
+        multimon=multimon,
+        audio_latency=audio_latency,
+        audio_quality=audio_quality,
+    )
+    try:
+        watchdog = spawn_rail_watchdog(domain, base, display=screen)
+    except OSError:
+        watchdog = None
+    result: dict[str, Any] = {
+        "domain": domain,
+        "name": entry.get("name"),
+        "mode": "supervisor",
+        "supervisor_pid": pid,
+        "watchdog_pid": watchdog,
+        "stopped_other_supervisors": stopped_others,
+        "seeded": seeded,
+        "log": str(log_path),
+        "freerdp": freerdp.as_dict(),
+    }
+    if seed_error:
+        result["seed_warning"] = seed_error
+    if seeded:
+        wait_for_session(ssh, username, timeout=20)
+        try:
+            launch_result, direct = _launch_published_in_session(
+                ssh, username, name, program, arguments
+            )
+            result.update(launch_result)
+            result["direct_activation"] = direct
+            result["launched"] = True
+        except VemuError as exc:
+            result["launch_warning"] = str(exc)
+    return result
+
+
+def vm_seamless_stop(
+    domain: str,
+    *,
+    state_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Stop the long-lived RAIL supervisor for one guest."""
+    pid_path, _log = supervisor_paths(_seamless_base(state_dir), domain)
+    stopped = stop_supervisor(pid_path)
+    seeds = 0
+    saved = _load_seamless_state(domain, state_dir)
+    if saved:
+        try:
+            seeds = stop_seed(_seamless_ssh(saved))
+        except VemuError:
+            seeds = 0
+    return {
+        "domain": domain,
+        "supervisor_stopped": stopped,
+        "seeds_stopped": seeds,
+    }
+
+
+def vm_seamless_sync_shortcuts(
+    domain: str,
+    *,
+    state_dir: str | Path | None = None,
+    shortcut_dir: str | Path | None = None,
+    desktop: str | None = None,
+) -> dict[str, Any]:
+    """Recreate .desktop files from the published program list."""
+    saved = _load_seamless_state(domain, state_dir)
+    if not saved:
+        raise Conflict(f"No seamless state for '{domain}'.")
+    desktop = (
+        desktop
+        or seamless_shortcuts.desktop_family()
+        or str(saved.get("desktop") or "")
+        or None
+    )
+    installed = []
+    warnings = []
+    try:
+        transport = _seamless_ssh(saved)
+    except VemuError:
+        transport = None
+    for item in saved.get("apps") or []:
+        if transport is not None:
+            arguments = str(item.get("arguments") or "")
+            icon = seamless_icons.extract_store(
+                transport,
+                arguments,
+                domain,
+                str(item.get("name", "")),
+                directory=_icon_base(shortcut_dir),
+            )
+            if icon is None:
+                icon = seamless_icons.extract(
+                    transport,
+                    str(item.get("path", "")),
+                    domain,
+                    str(item.get("name", "")),
+                    directory=_icon_base(shortcut_dir),
+                )
+            if icon is not None:
+                item["icon"] = str(icon)
+        try:
+            installed.append(
+                str(
+                    seamless_shortcuts.install(
+                        domain,
+                        item,
+                        directory=shortcut_dir,
+                        desktop=desktop,
+                    )
+                )
+            )
+        except (VemuError, OSError) as exc:
+            warnings.append(f"{item.get('name')}: {exc}")
+    repaired = seamless_shortcuts.repair(
+        directory=shortcut_dir, desktop=desktop
+    )
+    return {
+        "domain": domain,
+        "shortcuts": installed,
+        "repaired": [str(path) for path in repaired],
+        "warnings": warnings,
+    }
 
 
 def seal_template(

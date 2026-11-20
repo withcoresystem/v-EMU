@@ -67,7 +67,7 @@ def render_user_data(config: CloudInitConfig) -> str:
         f"ssh_pwauth: {'true' if config.password else 'false'}",
         "users:",
         f"  - name: {_q(config.user)}",
-        "    shell: /bin/bash",
+        "    shell: /bin/sh",
         "    sudo: ALL=(ALL) NOPASSWD:ALL",
         "    lock_passwd: false",
     ]

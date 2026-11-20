@@ -8,9 +8,10 @@ For normal vEMU use, start with [`MANUAL.md`](MANUAL.md) or the in-app guide
 [`docs/USER-GUIDE.md`](docs/USER-GUIDE.md). This file goes deeper and is meant
 for people who create or maintain images.
 
-> **Status:** Image Builder is a 0.2.0 feature. It orchestrates the upstream
-> `image-builder` CLI on Fedora/RHEL-family hosts. Debian, Ubuntu, openSUSE and
-> Arch-family hosts are not supported as build hosts.
+> **Status:** Image Builder is available since 0.2.0 and remains part of the
+> 0.3.0 broad release. It orchestrates the upstream `image-builder` CLI on
+> Fedora/RHEL-family hosts. Debian, Ubuntu, openSUSE and Arch-family hosts are
+> not supported as build hosts.
 
 ## 1. What Image Builder is
 
@@ -627,7 +628,7 @@ limits are in [`templates/README.md`](templates/README.md).
 - [`SECURITY.md`](SECURITY.md#runtime-network-access) — outbound network and
   trust boundaries.
 - [`templates/README.md`](templates/README.md) — template matrix and validation.
-- [`docs/BUILDER-BRANDING.md`](docs/BUILDER-BRANDING.md) — branding, Plymouth,
-  firstboot and verification reference.
+- [`docs/BUILDER-BRANDING.md`](docs/BUILDER-BRANDING.md) — full branding,
+  Plymouth, firstboot and verification reference.
 - [`examples/firstboot-payloads/post-setup.sh`](examples/firstboot-payloads/post-setup.sh)
   — example payload.

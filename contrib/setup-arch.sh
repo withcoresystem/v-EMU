@@ -76,7 +76,8 @@ fi
 PACKAGES=(
     qemu-full libvirt libvirt-python virt-install dnsmasq nftables
     swtpm edk2-ovmf virtiofsd pyside6 guestfs-tools libisoburn
-    dosfstools mtools tigervnc virt-viewer python python-pip polkit
+    dosfstools mtools tigervnc virt-viewer freerdp python python-pip
+    python-keyring polkit
 )
 if (( FULL )); then
     PACKAGES+=(edk2-aarch64 edk2-riscv64)
@@ -143,7 +144,8 @@ fi
 if [[ $MODE == "uninstall" ]]; then
     "${SUDO[@]}" systemctl disable --now vemud 2>/dev/null || true
     "${SUDO[@]}" rm -f /etc/systemd/system/vemud.service
-    "${SUDO[@]}" rm -rf /usr/local/lib/vemu /usr/share/vemu/firmware
+    "${SUDO[@]}" rm -rf /usr/local/lib/vemu /usr/share/vemu/firmware \
+        /usr/share/vemu/windows
     "${SUDO[@]}" rm -f /etc/vemu/qemu.env \
         /usr/share/polkit-1/actions/org.vemu.policy \
         /usr/lib/sysusers.d/vemu.conf
@@ -180,6 +182,11 @@ for group in libvirt kvm; do
         "${SUDO[@]}" usermod -aG "$group" "$USER"
     fi
 done
+
+echo "Preparing shared v-EMU state directories..."
+"${SUDO[@]}" install -d -o root -g vemu -m 0770 /var/lib/vemu
+"${SUDO[@]}" install -d -o root -g vemu -m 0770 \
+    /var/lib/vemu/seamless /var/lib/vemu/experimental3d
 
 install_firmware() {
     local src="$ROOT/firmware" dst=/usr/share/vemu/firmware
@@ -258,6 +265,13 @@ if (( FULL )); then
     check_firmware
 fi
 
+echo "Installing Windows guest optimization assets..."
+"${SUDO[@]}" install -d -m 0755 /usr/share/vemu/windows
+for file in README.md profiles.json vemu-guest-optimize.ps1; do
+    "${SUDO[@]}" install -m 0644 \
+        "$ROOT/contrib/windows/$file" "/usr/share/vemu/windows/$file"
+done
+
 if getent passwd libvirt-qemu >/dev/null 2>&1; then
     QEMU_USER=libvirt-qemu
     QEMU_GROUP=libvirt-qemu
@@ -306,7 +320,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 LockPersonality=yes
 Restart=on-failure
 RestartSec=2

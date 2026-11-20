@@ -277,6 +277,37 @@ tree with labels, parent and size; revert/delete are available only when the VM
 is stopped, and never on the Current layer. Multi-disk VMs snapshot every disk
 as one unit. Live snapshots are not part of the current scope. Chains created
 before the new snapshot model are labelled legacy and keep the old behaviour.
+**Compact…** is enabled only when the chain has at least two layers. It merges
+the active branch into the first layer and removes the other layers; it keeps
+the VM and base but removes all snapshot rollback points. Non-active branches
+are discarded; clone/export one first if needed. To reclaim deleted guest data,
+run `fstrim -av` in the guest before compacting.
+
+### 4.6 Windows seamless mode
+
+For Windows 10/11 Pro/Enterprise, **Seamless Mode → Activate Seamless mode…**
+prepares the guest and publishes selected programs as Linux shortcuts through
+RemoteApp/RAIL. The full console remains available. Requires QXL/VGA, QGA,
+OpenSSH and FreeRDP >= 3.26.
+
+- **Manage Windows programs…** adds, tests, refreshes or removes apps.
+- **Disable seamless mode… → Pause** removes shortcuts but keeps the Windows
+  guest, RDP/SSH and the pre-seamless checkpoint.
+- **Remove and restore** restores the checkpoint and deletes host state; it is
+  destructive to later guest changes.
+- If no checkpoint exists, use the CLI recovery path
+  `vemu seamless rollback DOMAIN --host-only`; it keeps Windows.
+
+See `docs/WINDOWS-SEAMLESS.md` in the repository for prerequisites and
+recovery.
+
+### 4.7 Experimental Windows 3D (CLI only)
+
+`vemu experimental 3d` is unsupported, SPICE-only and separate from seamless.
+It requires test signing and Secure Boot off, and changes host
+`/etc/libvirt/qemu.conf` with explicit consent. Doctor reports the host-security
+state and can restore it after the 3D VMs are removed. See
+`docs/WINDOWS-3D-PREVIEW.md` in the repository.
 
 ## 5. Networking
 
@@ -327,7 +358,8 @@ using `--shared --auto-resize=never --spice-disable-usbredir
 --spice-disable-audio`. Install `virt-viewer` (the package that provides
 `remote-viewer`). `vemu console <vm> --open` follows the same path; the viewer
 log is `~/.local/state/vemu/spice-viewer-<vm>.log`. This is not a new supported
-console mode: VNC VMs keep the embedded/TigerVNC choice above.
+console mode: VNC VMs keep the embedded/TigerVNC choice above. For the separate
+Windows 3D lab preview, see `docs/WINDOWS-3D-PREVIEW.md`.
 
 The native toolbar starts hidden so the guest fills the window; press `F9` or
 `Ctrl+Shift+T` to show it. The console **Power** menu keeps only **Start** and
@@ -487,9 +519,9 @@ vemu list
 ```
 
 Known limits: TCG is slow; live snapshots and 3D/GL are not planned for
-0.1/0.2; Windows 3D on virtio-gpu is not a supported feature and remains a
-private lab experiment, not a 0.3.0 commitment or support for PCIe/VFIO or
-commercial vGPU; Linux clipboard needs
+0.1/0.2; Windows 3D on virtio-gpu is not a supported feature (the separate
+`docs/WINDOWS-3D-PREVIEW.md` lab experiment is not support for PCIe/VFIO or
+commercial vGPU); Linux clipboard needs
 Wayland, `wl-clipboard` and QGA `guest-exec` (X11 is out of scope), so guests
 that block `guest-exec` must use a VirtioFS share; 125%
 does not fit a 1440×900 display; v-EMU is

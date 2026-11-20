@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
+from .. import experimental3d
 from ..errors import VemuError
 from ..external_vnc import find_vncviewer, viewer_install_hint
 from .components import PageHeader, form_layout
@@ -279,6 +280,25 @@ class SettingsPage(QWidget):
         layout.addWidget(advanced)
         self.cross_arch_available: list[str] = []
 
+        experimental_group = QGroupBox("Experimental features")
+        experimental_layout = QVBoxLayout(experimental_group)
+        self.experimental_check = QCheckBox(
+            "Enable experimental features (unsupported)"
+        )
+        self.experimental_check.setChecked(
+            experimental3d.experimental_enabled()
+        )
+        self.experimental_check.toggled.connect(
+            self._experimental_toggled
+        )
+        experimental_layout.addWidget(self.experimental_check)
+        self.experimental_note = QLabel()
+        self.experimental_note.setObjectName("Muted")
+        self.experimental_note.setWordWrap(True)
+        experimental_layout.addWidget(self.experimental_note)
+        layout.addWidget(experimental_group)
+        self._refresh_experimental_note()
+
         connection = QGroupBox("Connection")
         connection_form = form_layout(connection)
         self.mode_label = QLabel("unknown")
@@ -418,6 +438,99 @@ class SettingsPage(QWidget):
                 )
         self._settings.setValue("ui/console_mode", mode)
         self.console_mode_changed.emit(mode)
+
+    def _experimental_states(self) -> list[dict]:
+        try:
+            return experimental3d.list_states()
+        except Exception:  # noqa: BLE001 - settings must stay usable
+            return []
+
+    def _refresh_experimental_note(self) -> None:
+        text = (
+            "This only reveals the hidden 'vemu experimental' commands. It "
+            "does not convert a VM or install anything by itself. "
+            "Experimental 3D uses the pinned vgpu3d driver, switches the "
+            "console to SPICE and is console-only: there is no 3D over RDP, "
+            "RemoteApp or seamless mode. Read docs/WINDOWS-3D-PREVIEW.md "
+            "before using it. Turning this off does not revert a converted "
+            "VM; use 'vemu experimental 3d revert'."
+        )
+        active = [
+            item
+            for item in self._experimental_states()
+            if item.get("enabled")
+        ]
+        if active:
+            names = ", ".join(str(item["domain"]) for item in active)
+            text += f"\n\nExperimental 3D state still present: {names}."
+            if any(item.get("host_security_change") for item in active):
+                text += (
+                    " A host qemu.conf change is recorded; it is not "
+                    "restored automatically."
+                )
+        self.experimental_note.setText(text)
+
+    def _experimental_toggled(self, enabled: bool) -> None:
+        if enabled:
+            answer = QMessageBox.question(
+                self,
+                "Enable experimental features?",
+                "Experimental features are unsupported and may change or "
+                "disappear without notice.\n\n"
+                "Experimental 3D converts one VM through the CLI, installs "
+                "a test-signed Windows driver, disables Secure Boot "
+                "requirements, and works only with the SPICE console. It is "
+                "not available over RDP, RemoteApp or seamless mode.\n\n"
+                "Enable the hidden experimental commands?",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self.experimental_check.blockSignals(True)
+                self.experimental_check.setChecked(False)
+                self.experimental_check.blockSignals(False)
+                return
+        else:
+            active = [
+                item
+                for item in self._experimental_states()
+                if item.get("enabled")
+            ]
+            if active:
+                names = ", ".join(str(item["domain"]) for item in active)
+                answer = QMessageBox.question(
+                    self,
+                    "Disable experimental features?",
+                    f"{len(active)} experimental 3D state(s) still exist: {names}."
+                    "\n\nUnchecking only hides the commands; it does NOT "
+                    "revert those VMs, stop the SPICE console or restore host "
+                    "qemu.conf. Use 'vemu experimental 3d revert DOMAIN' for "
+                    "each converted VM.\n\nDisable the experimental "
+                    "commands?",
+                    QMessageBox.StandardButton.Yes
+                    | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    self.experimental_check.blockSignals(True)
+                    self.experimental_check.setChecked(True)
+                    self.experimental_check.blockSignals(False)
+                    return
+        try:
+            experimental3d.set_experimental_enabled(enabled)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "Experimental features", str(exc)
+            )
+            self.experimental_check.blockSignals(True)
+            self.experimental_check.setChecked(not enabled)
+            self.experimental_check.blockSignals(False)
+            return
+        self.experimental_check.setToolTip(
+            "CLI: vemu experimental 3d status|enable|revert|repair DOMAIN"
+        )
+        self._refresh_experimental_note()
 
     def _prefer_installed_disk(self, enabled: bool) -> None:
         self._settings.setValue("ui/prefer_installed_disk", bool(enabled))

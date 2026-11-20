@@ -12,6 +12,7 @@ from vemu.chain import ChainManager, SnapshotSet, find_orphan_layers
 from vemu.errors import Conflict, ValidationError
 
 QEMU_IMG = shutil.which("qemu-img")
+QEMU_IO = shutil.which("qemu-io")
 
 
 @unittest.skipUnless(QEMU_IMG, "qemu-img is required")
@@ -106,6 +107,54 @@ class MultiDiskChainTests(unittest.TestCase):
             )
         manager.reset()
         self.assertEqual(manager.load().active_set(), "0004")
+        self.assertEqual(manager.verify(), [])
+
+    @unittest.skipUnless(QEMU_IO, "qemu-io is required")
+    def test_compact_flattens_all_disks(self) -> None:
+        manager = self._create()
+        manager.snapshot("before-change")
+        chain = manager.load()
+        active = chain.active_disks()
+        for target, path in active.items():
+            pattern = "0xAB" if target == "sda" else "0xCD"
+            subprocess.run(
+                [
+                    QEMU_IO,
+                    "-f",
+                    "qcow2",
+                    "-c",
+                    f"write -P {pattern} 0 1M",
+                    path,
+                ],
+                check=True,
+                capture_output=True,
+            )
+        plan = manager.compact_plan()
+        self.assertTrue(plan["supported"])
+        self.assertTrue(plan["multi_disk"])
+        manager.compact(confirm_snapshot_loss=True)
+        chain = manager.load()
+        self.assertEqual(chain.snapshot_model, 2)
+        self.assertEqual(chain.active_set(), "0001")
+        self.assertEqual(
+            len(next(iter(chain.disks.values())).layers), 1
+        )
+        for target, path in active.items():
+            self.assertFalse(Path(path).exists())
+            pattern = "0xAB" if target == "sda" else "0xCD"
+            probe = subprocess.run(
+                [
+                    QEMU_IO,
+                    "-f",
+                    "qcow2",
+                    "-c",
+                    f"read -P {pattern} 0 512",
+                    chain.active_disks()[target],
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotIn("Pattern verification failed", probe.stdout)
         self.assertEqual(manager.verify(), [])
 
     def test_multi_snapshot_description_is_shared_and_updatable(self) -> None:

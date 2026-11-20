@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import subprocess
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,7 @@ from .errors import (
     ValidationError,
     VemuError,
 )
+from .lowprio import qemu_convert_command
 
 CHAIN_FILE = "chain.json"
 COMMIT_JOURNAL = "commit.json"
@@ -984,6 +986,363 @@ class ChainManager:
                 )
             return self._delete_multi(chain, layer_id, force=force)
         return self._delete_single(chain, layer_id, force=force)
+
+    # ------------------------------------------------------------------ compaction
+
+    @staticmethod
+    def _compact_disks(
+        chain: Chain | MultiDiskChain,
+    ) -> list[tuple[str, Chain]]:
+        if isinstance(chain, MultiDiskChain):
+            return sorted(chain.disks.items())
+        return [(chain.target or "vda", chain)]
+
+    def _actual_size(self, path: Path) -> int:
+        if not path.is_file():
+            return 0
+        try:
+            data = json.loads(
+                self._run(
+                    "info", "-U", "--output=json", str(path)
+                ).stdout
+            )
+            return int(data.get("actual-size", 0))
+        except (ExternalCommandError, ValueError, TypeError, KeyError):
+            return 0
+
+    def _measure_image(self, path: Path) -> int:
+        result = self._run(
+            "measure", "-O", "qcow2", str(path), check=False
+        )
+        if result.returncode != 0:
+            raise ExternalCommandError(
+                " ".join([self.qemu_img, "measure", "-O", "qcow2", str(path)]),
+                result.returncode,
+                result.stderr or result.stdout,
+            )
+        match = re.search(r"required size:\s*(\d+)", result.stdout)
+        if match is None:
+            raise ValidationError(
+                f"Could not parse the qemu-img measure output for {path}."
+            )
+        return int(match.group(1))
+
+    def _convert_image(self, source: Path, dest: Path) -> None:
+        command = qemu_convert_command(
+            self.qemu_img, str(source), str(dest)
+        )
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise ExternalCommandError(
+                " ".join(command),
+                result.returncode,
+                result.stderr or result.stdout,
+            )
+
+    @staticmethod
+    def _active_path(disk: Chain) -> list[Layer]:
+        """Return the layers from the first layer to the active layer."""
+        active = disk.active_layer()
+        if active is None:
+            return []
+        path = [active]
+        seen: set[str] = set()
+        while path[-1].parent != "base":
+            if path[-1].id in seen:
+                return []
+            seen.add(path[-1].id)
+            path.append(disk.layer(path[-1].parent))
+        path.reverse()
+        return path
+
+    def compact_plan(self) -> dict[str, Any]:
+        """Describe a merge-and-discard operation without changing anything.
+
+        Compaction merges the active branch into the first layer on top of the
+        base, discards every other layer/branch, and turns the first layer into
+        the current layer. The base is retained, so a shared template base is
+        never copied or modified.
+        """
+        chain = self.load()
+        disks = self._compact_disks(chain)
+        model = (
+            chain.snapshot_model
+            if isinstance(chain, MultiDiskChain)
+            else 1
+        )
+        pending = (self.chain_dir / COMMIT_JOURNAL).is_file()
+        reasons: list[str] = []
+        warnings: list[str] = [
+            "The base image is kept; compaction reclaims layers above it.",
+        ]
+        if max((len(disk.layers) for _, disk in disks), default=0) < 2:
+            reasons.append(
+                "Chain has only one layer; there is nothing to compact."
+            )
+        if pending:
+            reasons.append(
+                "An unfinished snapshot commit exists; run "
+                "'vemu doctor --repair' first."
+            )
+        if model < 2:
+            warnings.append(
+                "This is a legacy snapshot chain; compaction converts it to "
+                "the current-layer model."
+            )
+
+        disk_rows: list[dict[str, Any]] = []
+        old_total = 0
+        first_total = 0
+        candidate_total = 0
+        required_total = 0
+        snapshot_count = 0
+        branch_count = 0
+        layer_count = 0
+        for target, disk in disks:
+            path = self._active_path(disk)
+            if not path:
+                reasons.append(f"Disk '{target}' has no active layer.")
+                continue
+            active_path = Path(disk.active_disk())
+            if not active_path.is_file():
+                reasons.append(
+                    f"Active disk for '{target}' is missing: {active_path}."
+                )
+                continue
+            base_path = Path(disk.base)
+            if not base_path.is_file():
+                reasons.append(
+                    f"Base image for '{target}' is missing: {base_path}."
+                )
+                continue
+            path_ids = {layer.id for layer in path}
+            first = path[0]
+            merge = path[1:]
+            discard = [
+                layer for layer in disk.layers if layer.id not in path_ids
+            ]
+            sizes: dict[str, int] = {
+                layer.id: self._actual_size(Path(layer.path))
+                for layer in disk.layers
+            }
+            old_bytes = sum(sizes.values())
+            first_bytes = sizes.get(first.id, 0)
+            candidate_bytes = sum(
+                sizes.get(layer.id, 0) for layer in [*merge, *discard]
+            )
+            max_child = max(
+                (sizes.get(layer.id, 0) for layer in merge), default=0
+            )
+            required = max_child + int(max_child * 0.15)
+            disk_snapshots = max(0, len(disk.layers) - 1)
+            snapshot_count = max(snapshot_count, disk_snapshots)
+            disk_branches = sum(
+                1
+                for layer in disk.layers
+                if len(disk.children(layer.id)) > 1
+            )
+            branch_count = max(branch_count, disk_branches)
+            layer_count = max(layer_count, len(disk.layers))
+            old_total += old_bytes
+            first_total += first_bytes
+            candidate_total += candidate_bytes
+            required_total += required
+            disk_rows.append(
+                {
+                    "target": target,
+                    "bus": disk.bus,
+                    "base": disk.base,
+                    "first_layer": first.id,
+                    "active": path[-1].id,
+                    "merge_ids": [layer.id for layer in merge],
+                    "discard_ids": [layer.id for layer in discard],
+                    "layer_count": len(disk.layers),
+                    "snapshot_count": disk_snapshots,
+                    "branch_count": disk_branches,
+                    "old_bytes": old_bytes,
+                    "first_bytes": first_bytes,
+                    "candidate_bytes": candidate_bytes,
+                    "required_bytes": required,
+                }
+            )
+
+        try:
+            available = shutil.disk_usage(self.chain_dir).free
+        except OSError:
+            available = 0
+        sufficient = available >= required_total
+        if required_total and not sufficient:
+            reasons.append(
+                f"Not enough free space: need {required_total} bytes, "
+                f"available {available} bytes."
+            )
+        if snapshot_count:
+            warnings.append(
+                "All snapshot rollback points will be merged or discarded; "
+                "the first layer becomes Current."
+            )
+        if branch_count:
+            warnings.append(
+                "Branched snapshot layers outside the active path will be "
+                "discarded."
+            )
+        if candidate_total:
+            warnings.append(
+                "The reclaim figure is based on layer file sizes; actual host "
+                "saving can be larger after guest discard/TRIM, or smaller "
+                "after cluster merging."
+            )
+        info = self.info()
+        return {
+            "multi_disk": isinstance(chain, MultiDiskChain)
+            and len(chain.disks) > 1,
+            "disk_count": len(disks),
+            "snapshot_model": model,
+            "layer_count": layer_count,
+            "snapshot_count": snapshot_count,
+            "branch_count": branch_count,
+            "requires_snapshot_loss": bool(snapshot_count or branch_count),
+            "old_bytes": old_total,
+            "first_bytes": first_total,
+            "reclaim_bytes": candidate_total,
+            "required_bytes": required_total,
+            "available_bytes": available,
+            "sufficient": sufficient,
+            "supported": not reasons,
+            "reasons": reasons,
+            "warnings": warnings,
+            "disks": disk_rows,
+            "layers": info.get("layers", []),
+            "pending_recovery": pending,
+        }
+
+    def compact(
+        self,
+        *,
+        confirm_snapshot_loss: bool = False,
+        update_domain: Any = None,
+    ) -> dict[str, Any]:
+        """Merge the active branch into the first layer and drop the rest.
+
+        Every layer above the first layer on the active branch is committed
+        into its parent, and layers outside that branch are removed. The base
+        is never written, so a template base shared by linked clones stays
+        intact. ``update_domain`` is called with the new chain before the
+        merges; it lets the service point the domain at the first layer while
+        the old active layer still exists for rollback.
+        """
+        plan = self.compact_plan()
+        if not plan["supported"]:
+            raise Conflict("; ".join(plan["reasons"]))
+        if plan["requires_snapshot_loss"] and not confirm_snapshot_loss:
+            raise ValidationError(
+                "Compaction removes every snapshot rollback point. Re-run "
+                "with confirmation after keeping a backup if needed."
+            )
+        chain = self.load()
+        disks = self._compact_disks(chain)
+        new_chain = MultiDiskChain(
+            version=CHAIN_VERSION,
+            disks={},
+            snapshot_model=2,
+        )
+        commits: list[tuple[Layer, Layer]] = []
+        old_files: set[Path] = set()
+        first_before: dict[str, int] = {}
+        for target, disk in disks:
+            path = self._active_path(disk)
+            if not path:
+                raise Conflict(f"Disk '{target}' has no active layer.")
+            path_ids = {layer.id for layer in path}
+            first = path[0]
+            first_before[target] = self._actual_size(Path(first.path))
+            for index in range(len(path) - 1, 0, -1):
+                commits.append((path[index], path[index - 1]))
+            for layer in disk.layers:
+                if layer.id not in path_ids:
+                    old_files.add(Path(layer.path))
+            for layer in path[1:]:
+                old_files.add(Path(layer.path))
+            layer = Layer(
+                id=first.id,
+                path=first.path,
+                parent="base",
+                created_at=first.created_at or _now(),
+            )
+            new_chain.disks[target] = Chain(
+                version=LEGACY_CHAIN_VERSION,
+                base=disk.base,
+                layers=[layer],
+                active=first.id,
+                target=target,
+                bus=disk.bus,
+            )
+        new_chain.validate()
+        old_sizes = {
+            path: self._actual_size(path) for path in old_files
+        }
+        first_before_total = sum(first_before.values())
+        try:
+            available_before = shutil.disk_usage(self.chain_dir).free
+        except OSError:
+            available_before = 0
+        if update_domain is not None:
+            update_domain(new_chain)
+        for child, parent in commits:
+            self._run("commit", child.path)
+        for disk in new_chain.disks.values():
+            self._run("check", disk.layers[0].path)
+        self.save(new_chain)
+
+        removed_bytes = sum(old_sizes.values())
+        removed: list[str] = []
+        warnings = list(plan.get("warnings", []))
+        for path in sorted(old_files):
+            try:
+                path.unlink(missing_ok=True)
+                removed.append(str(path))
+            except OSError as exc:
+                warnings.append(f"Cannot remove old layer {path}: {exc}")
+        first_after = sum(
+            self._actual_size(Path(disk.layers[0].path))
+            for disk in new_chain.disks.values()
+        )
+        growth = max(0, first_after - first_before_total)
+        os.sync()
+        try:
+            available_after = shutil.disk_usage(self.chain_dir).free
+        except OSError:
+            available_after = available_before
+        reclaim_bytes = max(0, removed_bytes - growth)
+        host_reclaim = max(0, available_after - available_before)
+        if removed_bytes and reclaim_bytes == 0:
+            warnings.append(
+                "Compaction merged data into the first layer but may not "
+                "reduce host usage; guest files are not deleted."
+            )
+        return {
+            **self.info(),
+            "compacted": bool(
+                commits
+                or old_files
+                or plan["snapshot_model"] < 2
+            ),
+            "removed": removed,
+            "removed_bytes": removed_bytes,
+            "first_bytes": first_after,
+            "reclaim_bytes": reclaim_bytes,
+            "available_before": available_before,
+            "available_after": available_after,
+            "host_reclaim_bytes": host_reclaim,
+            "warnings": warnings,
+        }
+
+    # ------------------------------------------------------------------ delete helper
 
     def _delete_single(
         self,

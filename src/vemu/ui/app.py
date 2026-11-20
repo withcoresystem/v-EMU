@@ -334,6 +334,8 @@ class DaemonBackend:
                 "domain": name,
                 "delete_storage": delete_storage,
                 "force": force,
+                "state_dir": self._seamless_state_dir(),
+                "shortcut_dir": self._seamless_shortcut_dir(),
             },
         )
 
@@ -398,6 +400,27 @@ class DaemonBackend:
         return self.client.call(
             "snapshots.delete",
             {"domain": name, "layer": layer, "force": force},
+        )
+
+    def snapshots_compact(
+        self,
+        name: str,
+        *,
+        dry_run: bool = False,
+        confirm: bool = False,
+    ) -> dict:
+        method = (
+            "snapshots.compact_plan"
+            if dry_run
+            else "snapshots.compact"
+        )
+        return self.client.call(
+            method,
+            {
+                "domain": name,
+                "dry_run": dry_run,
+                "confirm": confirm,
+            },
         )
 
     def storage_list(self) -> list[dict]:
@@ -489,6 +512,176 @@ class DaemonBackend:
         return self.client.call(
             "vm.clipboard_set", {"domain": domain, "text": text}
         )
+
+    def _seamless_state_dir(self) -> str:
+        from ..seamless.prepare import state_dir
+
+        return str(state_dir())
+
+    def _seamless_shortcut_dir(self) -> str:
+        from ..seamless import shortcuts
+
+        return str(shortcuts.applications_dir())
+
+    def _desktop_family(self) -> str:
+        from ..seamless.shortcuts import desktop_family
+
+        return desktop_family()
+
+    def vm_seamless_status(self, domain: str) -> dict:
+        return self.client.call(
+            "vm.seamless_status",
+            {"domain": domain, "state_dir": self._seamless_state_dir()},
+        )
+
+    def vm_seamless_state(self, domain: str) -> dict:
+        return self.client.call(
+            "vm.seamless_state",
+            {"domain": domain, "state_dir": self._seamless_state_dir()},
+        )
+
+    def vm_seamless_deactivate(self, domain: str) -> dict:
+        return self.client.call(
+            "vm.seamless_deactivate",
+            {
+                "domain": domain,
+                "state_dir": self._seamless_state_dir(),
+                "shortcut_dir": self._seamless_shortcut_dir(),
+            },
+        )
+
+    def vm_seamless_rollback(
+        self,
+        domain: str,
+        *,
+        host_only: bool = False,
+        force: bool = False,
+        forget_password: bool = False,
+    ) -> dict:
+        return self.client.call(
+            "vm.seamless_rollback",
+            {
+                "domain": domain,
+                "state_dir": self._seamless_state_dir(),
+                "shortcut_dir": self._seamless_shortcut_dir(),
+                "host_only": host_only,
+                "force": force,
+                "forget_password": forget_password,
+            },
+        )
+
+    def vm_seamless_sync_shortcuts(self, domain: str) -> dict:
+        return self.client.call(
+            "vm.seamless_sync_shortcuts",
+            {
+                "domain": domain,
+                "state_dir": self._seamless_state_dir(),
+                "shortcut_dir": self._seamless_shortcut_dir(),
+                "desktop": self._desktop_family(),
+            },
+        )
+
+    def vm_seamless_prepare(
+        self,
+        domain: str,
+        username: str,
+        profile: str = "Safe",
+        apps: dict[str, str] | None = None,
+        guest_ip: str | None = None,
+        user_hive: str | None = None,
+    ) -> dict:
+        return self.client.call(
+            "vm.seamless_prepare",
+            {
+                "domain": domain,
+                "username": username,
+                "profile": profile,
+                "apps": apps,
+                "guest_ip": guest_ip,
+                "user_hive": user_hive,
+                "state_dir": self._seamless_state_dir(),
+                "shortcut_dir": self._seamless_shortcut_dir(),
+                "owner_uid": os.getuid(),
+                "desktop": self._desktop_family(),
+            },
+        )
+
+    def vm_seamless_apps(
+        self,
+        domain: str,
+        include_system: bool = False,
+        include_store: bool = False,
+    ) -> dict:
+        return self.client.call(
+            "vm.seamless_apps",
+            {
+                "domain": domain,
+                "include_system": include_system,
+                "include_store": include_store,
+                "state_dir": self._seamless_state_dir(),
+                "shortcut_dir": self._seamless_shortcut_dir(),
+            },
+        )
+
+    def vm_seamless_refresh_apps(
+        self,
+        domain: str,
+        include_system: bool = False,
+        include_store: bool = False,
+    ) -> dict:
+        return self.client.call(
+            "vm.seamless_refresh_apps",
+            {
+                "domain": domain,
+                "include_system": include_system,
+                "include_store": include_store,
+                "state_dir": self._seamless_state_dir(),
+                "shortcut_dir": self._seamless_shortcut_dir(),
+            },
+        )
+
+    def vm_seamless_add_app(
+        self,
+        domain: str,
+        name: str,
+        path: str,
+        arguments: str = "",
+        compat: bool = True,
+        verified: bool = False,
+    ) -> dict:
+        return self.client.call(
+            "vm.seamless_add_app",
+            {
+                "domain": domain,
+                "name": name,
+                "path": path,
+                "arguments": arguments,
+                "compat": compat,
+                "verified": verified,
+                "state_dir": self._seamless_state_dir(),
+                "shortcut_dir": self._seamless_shortcut_dir(),
+                "desktop": self._desktop_family(),
+            },
+        )
+
+    def vm_seamless_remove_app(self, domain: str, name: str) -> dict:
+        return self.client.call(
+            "vm.seamless_remove_app",
+            {
+                "domain": domain,
+                "name": name,
+                "state_dir": self._seamless_state_dir(),
+                "shortcut_dir": self._seamless_shortcut_dir(),
+            },
+        )
+
+    def vm_seamless_video(self, domain: str, model: str = "qxl") -> dict:
+        return self.client.call(
+            "vm.seamless_video", {"domain": domain, "model": model}
+        )
+
+    def experimental3d_restore_host(self) -> dict:
+        return self.client.call("experimental3d.restore_host", {})
 
     def vm_media_list(self, name: str) -> dict:
         return self.client.call("vm.media_list", {"domain": name})
@@ -2135,6 +2328,153 @@ class MainWindow(QMainWindow):
                 "Hardware updated; restart if the VM is running.", 5000
             )
 
+    def _open_seamless_activate(self) -> None:
+        if self.selected_domain is None:
+            return
+        if self._blocked_external():
+            return
+        if not hasattr(self.backend, "vm_seamless_prepare"):
+            QMessageBox.information(
+                self,
+                "Seamless Mode",
+                "Seamless mode is available through the v-EMU daemon.",
+            )
+            return
+        from .seamless import SeamlessActivateDialog
+
+        domain = self.selected_domain
+        dialog = SeamlessActivateDialog(self.backend, domain.name, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.changed:
+            self._refresh_and_select(domain.name)
+            self.statusBar().showMessage(
+                f"Seamless mode prepared for {domain.name}", 5000
+            )
+
+    def _open_seamless_disable(self) -> None:
+        if self.selected_domain is None:
+            return
+        if self._blocked_external():
+            return
+        if not (
+            hasattr(self.backend, "vm_seamless_state")
+            and hasattr(self.backend, "vm_seamless_deactivate")
+            and hasattr(self.backend, "vm_seamless_rollback")
+        ):
+            QMessageBox.information(
+                self,
+                "Seamless Mode",
+                "Seamless mode is available through the v-EMU daemon.",
+            )
+            return
+        domain = self.selected_domain
+        active = False
+        has_rollback = False
+        username = ""
+        try:
+            payload = self.backend.vm_seamless_state(domain.name)
+            state = payload.get("state") or {}
+            active = bool(state.get("active", payload.get("active", False)))
+            has_rollback = bool(
+                state.get("rollback") or payload.get("rollback")
+            )
+            username = str(state.get("username") or "")
+        except (VemuError, AttributeError) as exc:
+            QMessageBox.critical(self, "Seamless Mode", str(exc))
+            return
+        if not active and not has_rollback:
+            QMessageBox.information(
+                self,
+                "Seamless Mode",
+                "No pre-seamless checkpoint is available.",
+            )
+            return
+        from .seamless import DisableSeamlessDialog
+
+        dialog = DisableSeamlessDialog(
+            domain.name,
+            active=active,
+            checkpoint=has_rollback,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        mode, forget_password = dialog.selection()
+        if mode == "pause":
+            try:
+                result = self.backend.vm_seamless_deactivate(domain.name)
+            except VemuError as exc:
+                QMessageBox.critical(self, "Pause failed", str(exc))
+                return
+            self._refresh_and_select(domain.name)
+            count = len(result.get("removed_apps") or [])
+            self.statusBar().showMessage(
+                f"Seamless mode paused for {domain.name} "
+                f"({count} program(s) unpublished)",
+                5000,
+            )
+            return
+        self._remove_seamless_mode(
+            domain.name,
+            forget_password=forget_password,
+            username=username,
+        )
+
+    def _remove_seamless_mode(
+        self, domain: str, *, forget_password: bool, username: str = ""
+    ) -> None:
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.statusBar().showMessage(
+            f"Removing seamless mode for {domain} and restoring checkpoint…"
+        )
+
+        def operation() -> dict:
+            return self.backend.vm_seamless_rollback(
+                domain, forget_password=forget_password
+            )
+
+        task = _BackendTask(operation)
+        self._rollback_task = task
+
+        def done(result, error) -> None:
+            QApplication.restoreOverrideCursor()
+            if error is not None:
+                QMessageBox.critical(self, "Remove failed", str(error))
+                return
+            if forget_password and username:
+                from ..seamless.credentials import delete_password
+
+                delete_password(domain, username)
+            self._refresh_and_select(domain)
+            self.statusBar().showMessage(
+                f"Seamless mode removed for {domain}", 5000
+            )
+            QMessageBox.information(
+                self,
+                "Windows seamless mode",
+                "Seamless mode was removed and the VM restored to its "
+                "pre-seamless checkpoint. The VM is stopped.",
+            )
+
+        task.done.connect(done)
+        task.start()
+
+    def _open_seamless_manage(self) -> None:
+        if self.selected_domain is None:
+            return
+        if self._blocked_external():
+            return
+        if not hasattr(self.backend, "vm_seamless_status"):
+            QMessageBox.information(
+                self,
+                "Seamless Mode",
+                "Seamless mode is available through the v-EMU daemon.",
+            )
+            return
+        from .seamless import SeamlessProgramsDialog
+
+        domain = self.selected_domain
+        SeamlessProgramsDialog(self.backend, domain.name, self).exec()
+
     def _open_virtiofs(self) -> None:
         if self.selected_domain is None:
             return
@@ -2868,6 +3208,58 @@ class MainWindow(QMainWindow):
             domain.os_type != "windows"
             and hasattr(self.backend, "performance_probe")
         )
+        if domain.os_type == "windows":
+            active = False
+            has_rollback = False
+            seamless_state: dict = {}
+            if hasattr(self.backend, "vm_seamless_state"):
+                try:
+                    payload = self.backend.vm_seamless_state(domain.name)
+                    seamless_state = payload.get("state") or {}
+                    active = bool(
+                        seamless_state.get(
+                            "active", payload.get("active", False)
+                        )
+                    )
+                    has_rollback = bool(
+                        seamless_state.get("rollback")
+                        or payload.get("rollback")
+                    )
+                except (VemuError, AttributeError):
+                    active = False
+                    has_rollback = False
+            seamless = menu.addMenu("Seamless Mode")
+            if active:
+                disable = seamless.addAction(
+                    "Disable seamless mode…",
+                    self._open_seamless_disable,
+                )
+                disable.setEnabled(
+                    hasattr(self.backend, "vm_seamless_deactivate")
+                )
+            else:
+                activate = seamless.addAction(
+                    "Activate Seamless mode…",
+                    self._open_seamless_activate,
+                )
+                activate.setEnabled(
+                    domain.state == "running"
+                    and hasattr(self.backend, "vm_seamless_prepare")
+                )
+                if has_rollback:
+                    disable = seamless.addAction(
+                        "Disable seamless mode…",
+                        self._open_seamless_disable,
+                    )
+                    disable.setEnabled(
+                        hasattr(self.backend, "vm_seamless_rollback")
+                    )
+            manage = seamless.addAction(
+                "Manage Windows programs…", self._open_seamless_manage
+            )
+            manage.setEnabled(
+                active and hasattr(self.backend, "vm_seamless_status")
+            )
         configure = menu.addAction("Configure hardware…", self._open_vm_config)
         configure.setEnabled(hasattr(self.backend, "vm_config_info"))
         if domain.drift == "drifted":
@@ -2972,7 +3364,11 @@ class MainWindow(QMainWindow):
             "Delete VM only keeps the disk chain and metadata.\n\n"
             "Delete VM and disks removes v-EMU chain directories, XML "
             "backups, the drift baseline and share assignments. Unmanaged "
-            "or Partial disks are kept and reported."
+            "or Partial disks are kept and reported.\n\n"
+            "Both options stop the RAIL supervisor and remove seamless "
+            "shortcuts/icons. Delete VM only keeps seamless/3D state and XML "
+            "for recovery; Delete VM and disks purges them too. Experimental "
+            "3D host qemu.conf changes are never restored automatically."
         )
         if domain.state == "running":
             message = (
@@ -2994,6 +3390,15 @@ class MainWindow(QMainWindow):
         if choice not in (1, 2):
             return
         delete_storage = choice == 2
+        username = ""
+        if delete_storage and hasattr(self.backend, "vm_seamless_status"):
+            try:
+                status = self.backend.vm_seamless_status(domain.name)
+                username = str(
+                    (status.get("state") or {}).get("username") or ""
+                )
+            except (VemuError, AttributeError):
+                username = ""
         try:
             payload = self.backend.delete_vm(
                 domain.name,
@@ -3003,6 +3408,10 @@ class MainWindow(QMainWindow):
         except VemuError as exc:
             QMessageBox.critical(self, "Cannot delete VM", str(exc))
             return
+        if username:
+            from ..seamless.credentials import delete_password
+
+            delete_password(domain.name, username)
         self.refresh()
         suffix = " and its disks" if delete_storage else ""
         self.statusBar().showMessage(

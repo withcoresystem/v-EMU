@@ -65,6 +65,24 @@ class _SelinuxRepairTask(QThread):
             self.done.emit(payload, None)
 
 
+class _HostSecurityTask(QThread):
+    """Restore qemu.conf without blocking the Doctor page."""
+
+    done = Signal(object, object)
+
+    def __init__(self, backend, parent=None) -> None:
+        super().__init__(parent)
+        self._backend = backend
+
+    def run(self) -> None:
+        try:
+            payload = self._backend.experimental3d_restore_host()
+        except Exception as exc:  # noqa: BLE001 - forwarded to the GUI
+            self.done.emit(None, exc)
+        else:
+            self.done.emit(payload, None)
+
+
 class DoctorPage(QWidget):
     status = Signal(str)
 
@@ -74,6 +92,7 @@ class DoctorPage(QWidget):
         self.payload: dict = {}
         self.dark = False
         self._repair_task: _SelinuxRepairTask | None = None
+        self._host_security_task: _HostSecurityTask | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -95,6 +114,21 @@ class DoctorPage(QWidget):
         self.selinux_button.setEnabled(False)
         self.selinux_button.clicked.connect(self._repair_selinux)
         header.addWidget(self.selinux_button)
+        self.restore_security_button = QPushButton(
+            "Restore host security…"
+        )
+        self.restore_security_button.setObjectName("SecondaryButton")
+        set_tooltip(
+            self.restore_security_button,
+            "Restore /etc/libvirt/qemu.conf from the experimental 3D backup. "
+            "Host-wide; requires all VMs stopped and no enabled 3D state.",
+        )
+        self.restore_security_button.setVisible(False)
+        self.restore_security_button.setEnabled(False)
+        self.restore_security_button.clicked.connect(
+            self._restore_host_security
+        )
+        header.addWidget(self.restore_security_button)
         self.copy_button = QPushButton("Copy report")
         self.copy_button.setObjectName("SecondaryButton")
         self.copy_button.clicked.connect(self._copy_report)
@@ -335,12 +369,110 @@ class DoctorPage(QWidget):
         )
         self.selinux_button.setVisible(active)
         self.selinux_button.setEnabled(active and can_repair)
+        experimental = self.payload.get("experimental3d") or {}
+        restorable = bool(experimental.get("restorable"))
+        self.restore_security_button.setVisible(restorable)
+        self.restore_security_button.setEnabled(
+            restorable
+            and hasattr(self.backend, "experimental3d_restore_host")
+        )
 
     def _selinux_detail(self) -> str:
         for item in self.payload.get("checks", []):
             if item.get("check") == "SELinux":
                 return str(item.get("detail", "")).strip()
         return ""
+
+    def _restore_host_security(self) -> None:
+        self.refresh()
+        experimental = self.payload.get("experimental3d") or {}
+        if not experimental.get("restorable"):
+            QMessageBox.information(
+                self,
+                "Restore host security",
+                "There is no restorable experimental 3D host change.\n\n"
+                "Revert or delete every enabled 3D VM first, stop all VMs, "
+                "and keep the qemu.conf backup available.",
+            )
+            return
+        try:
+            running = [
+                domain.name
+                for domain in self.backend.list_domains()
+                if str(getattr(domain, "state", "")) == "running"
+            ]
+        except (VemuError, AttributeError) as exc:
+            QMessageBox.critical(self, "Restore host security", str(exc))
+            return
+        if running:
+            QMessageBox.warning(
+                self,
+                "Restore host security",
+                "Shut down these VMs before restoring host security; libvirt "
+                "must restart:\n\n"
+                + "\n".join(f"• {name}" for name in running),
+            )
+            return
+        backup = str(experimental.get("backup") or "")
+        if backup:
+            action = (
+                "Restore /etc/libvirt/qemu.conf from the experimental 3D "
+                f"backup?\n\nBackup: {backup}"
+            )
+        else:
+            action = (
+                "No qemu.conf backup was found. Set "
+                "seccomp_sandbox = 1 (the secure default) and restart "
+                "libvirt?"
+            )
+        answer = QMessageBox.question(
+            self,
+            "Restore host security",
+            action
+            + "\n\nThis is host-wide, restarts libvirt, and may disable 3D "
+            "for any VM that still depends on the sandbox change. The button "
+            "is only shown when no enabled 3D state remains.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.restore_security_button.setEnabled(False)
+        self.restore_security_button.setText("Restoring…")
+        self._host_security_task = _HostSecurityTask(self.backend, self)
+        self._host_security_task.done.connect(self._host_security_done)
+        self._host_security_task.finished.connect(
+            self._host_security_finished
+        )
+        self._host_security_task.start()
+
+    def _host_security_done(self, payload, error) -> None:
+        if error is not None:
+            QMessageBox.critical(self, "Restore host security failed", str(error))
+            return
+        if payload.get("changed"):
+            message = (
+                "The qemu.conf backup was restored and libvirt restarted."
+                if not payload.get("fallback")
+                else "No backup was found; seccomp_sandbox=1 was set and "
+                "libvirt restarted."
+            )
+            QMessageBox.information(
+                self, "Host security restored", message
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Host security",
+                "Host security was already restored; no change was needed.",
+            )
+
+    def _host_security_finished(self) -> None:
+        self.restore_security_button.setText("Restore host security…")
+        if self._host_security_task is not None:
+            self._host_security_task.deleteLater()
+            self._host_security_task = None
+        self.refresh()
 
     def _repair_selinux(self) -> None:
         self.refresh()

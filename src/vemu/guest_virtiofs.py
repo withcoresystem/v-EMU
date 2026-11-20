@@ -305,6 +305,50 @@ def _drives(backend: LibvirtBackend, domain: str) -> set[str]:
     }
 
 
+def _volume_drives(
+    backend: LibvirtBackend, domain: str
+) -> dict[str, list[str]]:
+    """Map volume labels to drive letters (VirtioFS drives use the tag)."""
+    code, out, _err = _powershell(
+        backend,
+        domain,
+        "Get-CimInstance Win32_LogicalDisk | "
+        "Where-Object { $_.DriveType -eq 3 } | "
+        "Select-Object DeviceID,VolumeName | ConvertTo-Json -Compress",
+        timeout=20,
+    )
+    if code != 0:
+        return {}
+    try:
+        data = json.loads(out or "[]")
+    except json.JSONDecodeError:
+        return {}
+    if isinstance(data, dict):
+        data = [data]
+    result: dict[str, list[str]] = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("VolumeName") or "").strip()
+        drive = str(item.get("DeviceID") or "").strip().rstrip(":")
+        if label and drive:
+            result.setdefault(label, []).append(drive)
+    return result
+
+
+def _duplicate_drives(
+    backend: LibvirtBackend,
+    domain: str,
+    tags: set[str],
+) -> dict[str, list[str]]:
+    volumes = _volume_drives(backend, domain)
+    return {
+        tag: drives
+        for tag, drives in volumes.items()
+        if tag in tags and len(drives) > 1
+    }
+
+
 def _instance(tag: str) -> str:
     digest = hashlib.sha1(tag.encode("utf-8")).hexdigest()[:10]
     return f"vemu{digest}"
@@ -410,9 +454,19 @@ def mount(
     existing = mount_status(backend, domain).get("mounts", {})
     mode = str(info.get("mode", "windows"))
     results: list[dict[str, Any]] = []
+    cleaned: dict[str, list[str]] = {}
     if mode == "windows":
         if configure:
             _configure_launcher(backend, domain, info)
+        tags = {str(item.get("tag") or "") for item in shares}
+        cleaned = _duplicate_drives(backend, domain, tags)
+        if cleaned:
+            # A stale WinFsp instance can leave an old drive letter behind.
+            # Restart the launcher and remount one copy per tag.
+            _run(backend, domain, SC, ["stop", "WinFsp.Launcher"], timeout=30)
+            _run(backend, domain, SC, ["start", "WinFsp.Launcher"], timeout=30)
+            time.sleep(0.5)
+            existing = mount_status(backend, domain).get("mounts", {})
         used = _drives(backend, domain)
         free = [
             letter for letter in "ZYXWVUTSRQPONMLKJIHGFED"
@@ -531,6 +585,7 @@ def mount(
         "domain": domain,
         "prerequisites": info,
         "mounts": results,
+        "cleaned_duplicates": cleaned,
         "mounted": all(item.get("mounted") for item in results)
         if results
         else False,

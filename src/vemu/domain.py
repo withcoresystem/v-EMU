@@ -133,6 +133,7 @@ class DomainSpec:
     video: str = "virtio"
     video_memory_mib: int | None = None
     os_type: str = "generic"
+    clock_offset: str = "utc"
     hyperv: bool = False
     serial_console: bool = False
     tpm: bool = False
@@ -173,6 +174,8 @@ class DomainSpec:
             )
         if self.graphics not in {"vnc", "none"}:
             raise ValidationError("Graphics must be 'vnc' or 'none'.")
+        if self.clock_offset not in {"utc", "localtime"}:
+            raise ValidationError("Clock offset must be 'utc' or 'localtime'.")
         if self.video not in {
             "virtio",
             "vga",
@@ -325,7 +328,7 @@ class DomainSpec:
             check="none" if self.cpu_mode == "host-passthrough" else "partial",
         )
 
-        clock = ET.SubElement(domain, "clock", offset="utc")
+        clock = ET.SubElement(domain, "clock", offset=self.clock_offset)
         ET.SubElement(clock, "timer", name="rtc", tickpolicy="catchup")
         ET.SubElement(clock, "timer", name="pit", tickpolicy="delay")
         ET.SubElement(clock, "timer", name="hpet", present="no")

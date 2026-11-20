@@ -7,7 +7,7 @@ domain definitions. Clients connect through ``/run/vemu/vemud.sock``.
 Protocol: one JSON object per line.
 
     -> {"id": 1, "method": "ping", "params": {}}
-    <- {"id": 1, "result": {"pong": true, "version": "0.2.0"}}
+    <- {"id": 1, "result": {"pong": true, "version": "0.3.0"}}
 
 This is intentionally small and dependency-free so it can be audited easily.
 """
@@ -34,6 +34,7 @@ from typing import Any
 
 from . import __version__
 from . import diagnose
+from . import experimental3d
 from .chain import ChainManager
 from .errors import Conflict, ValidationError, VemuError
 from . import service
@@ -61,6 +62,11 @@ READ_ONLY_METHODS = {
     "vm.capabilities",
     "vm.shares",
     "vm.share_status",
+    "vm.seamless_status",
+    "vm.seamless_state",
+    "vm.seamless_apps",
+    "vm.seamless_refresh_apps",
+    "experimental3d.status",
     "shares.list",
     "vm.xml",
     "console.info",
@@ -70,6 +76,7 @@ READ_ONLY_METHODS = {
     "chain.verify",
     "chain.journals",
     "snapshots.info",
+    "snapshots.compact_plan",
     "storage.inspect",
     "storage.list",
     "storage.registry",
@@ -382,6 +389,188 @@ class VemuDaemon:
             str(_require(params, "text")),
             uri=self.uri,
         )
+
+    def m_vm_seamless_prepare(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_prepare(
+            _require(params, "domain"),
+            str(_require(params, "username")),
+            profile=str(params.get("profile", "Safe")),
+            apps=params.get("apps") or None,
+            guest_ip=params.get("guest_ip") or None,
+            user_hive=params.get("user_hive") or None,
+            state_dir=params.get("state_dir") or None,
+            shortcut_dir=params.get("shortcut_dir") or None,
+            uri=self.uri,
+            snapshot=bool(params.get("snapshot", True)),
+            owner_uid=(
+                int(params["owner_uid"])
+                if params.get("owner_uid") is not None
+                else None
+            ),
+            desktop=params.get("desktop") or None,
+        )
+
+    def m_vm_seamless_state(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_state(
+            _require(params, "domain"),
+            state_dir=params.get("state_dir") or None,
+        )
+
+    def m_vm_seamless_deactivate(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_deactivate(
+            _require(params, "domain"),
+            state_dir=params.get("state_dir") or None,
+            shortcut_dir=params.get("shortcut_dir") or None,
+        )
+
+    def m_vm_seamless_rollback(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_rollback(
+            _require(params, "domain"),
+            state_dir=params.get("state_dir") or None,
+            shortcut_dir=params.get("shortcut_dir") or None,
+            uri=self.uri,
+            host_only=bool(params.get("host_only", False)),
+            force=bool(params.get("force", False)),
+            forget_password=bool(params.get("forget_password", False)),
+        )
+
+    def m_vm_seamless_status(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_status(
+            _require(params, "domain"),
+            state_dir=params.get("state_dir") or None,
+            uri=self.uri,
+        )
+
+    def m_vm_seamless_apps(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_apps(
+            _require(params, "domain"),
+            include_system=bool(params.get("include_system", False)),
+            include_store=bool(params.get("include_store", False)),
+            state_dir=params.get("state_dir") or None,
+            uri=self.uri,
+        )
+
+    def m_vm_seamless_refresh_apps(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_refresh_apps(
+            _require(params, "domain"),
+            include_system=bool(params.get("include_system", False)),
+            include_store=bool(params.get("include_store", False)),
+            state_dir=params.get("state_dir") or None,
+            uri=self.uri,
+        )
+
+    def m_vm_seamless_add_app(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_add_app(
+            _require(params, "domain"),
+            str(_require(params, "name")),
+            str(_require(params, "path")),
+            arguments=str(params.get("arguments", "")),
+            compat=bool(params.get("compat", True)),
+            verified=bool(params.get("verified", False)),
+            state_dir=params.get("state_dir") or None,
+            shortcut_dir=params.get("shortcut_dir") or None,
+            uri=self.uri,
+            desktop=params.get("desktop") or None,
+        )
+
+    def m_vm_seamless_remove_app(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_remove_app(
+            _require(params, "domain"),
+            str(_require(params, "name")),
+            state_dir=params.get("state_dir") or None,
+            shortcut_dir=params.get("shortcut_dir") or None,
+            uri=self.uri,
+        )
+
+    def m_vm_seamless_sync_shortcuts(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_sync_shortcuts(
+            _require(params, "domain"),
+            state_dir=params.get("state_dir") or None,
+            shortcut_dir=params.get("shortcut_dir") or None,
+            desktop=params.get("desktop") or None,
+        )
+
+    def m_vm_seamless_video(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return service.vm_seamless_video(
+            _require(params, "domain"),
+            model=str(params.get("model", "qxl")),
+            uri=self.uri,
+        )
+
+    # ------------------------------------------------------- experimental 3D
+
+    def m_experimental3d_status(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return experimental3d.status(
+            _require(params, "domain"),
+            state_dir=params.get("state_dir") or None,
+            seamless_state_dir=params.get("seamless_state_dir") or None,
+            uri=self.uri,
+        )
+
+    def m_experimental3d_enable(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return experimental3d.enable(
+            _require(params, "domain"),
+            _require(params, "username"),
+            state_dir=params.get("state_dir") or None,
+            seamless_state_dir=params.get("seamless_state_dir") or None,
+            seamless_shortcut_dir=params.get("seamless_shortcut_dir") or None,
+            uri=self.uri,
+            accept_host_security_change=bool(
+                params.get("accept_host_security_change", False)
+            ),
+            assume_yes=bool(params.get("assume_yes", False)),
+            dry_run=bool(params.get("dry_run", False)),
+            keep_broken=bool(params.get("keep_broken", False)),
+        )
+
+    def m_experimental3d_revert(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return experimental3d.revert(
+            _require(params, "domain"),
+            state_dir=params.get("state_dir") or None,
+            uri=self.uri,
+        )
+
+    def m_experimental3d_repair(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return experimental3d.repair(
+            _require(params, "domain"),
+            state_dir=params.get("state_dir") or None,
+            uri=self.uri,
+        )
+
+    def m_experimental3d_restore_host(
+        self, _params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return experimental3d.restore_host_security(uri=self.uri)
 
     def m_serial_info(self, params: dict[str, Any]) -> dict[str, Any]:
         return service.serial_info(
@@ -731,6 +920,8 @@ class VemuDaemon:
             _require(params, "domain"),
             delete_storage=bool(params.get("delete_storage", False)),
             force=bool(params.get("force", False)),
+            state_dir=params.get("state_dir") or None,
+            shortcut_dir=params.get("shortcut_dir") or None,
             uri=self.uri,
         )
 
@@ -789,6 +980,22 @@ class VemuDaemon:
             _require(params, "layer"),
             self.uri,
             force=bool(params.get("force", False)),
+        )
+
+    def m_snapshots_compact_plan(self, params: dict[str, Any]) -> dict[str, Any]:
+        return service.snapshots_compact(
+            _require(params, "domain"),
+            self.uri,
+            dry_run=True,
+            confirm=False,
+        )
+
+    def m_snapshots_compact(self, params: dict[str, Any]) -> dict[str, Any]:
+        return service.snapshots_compact(
+            _require(params, "domain"),
+            self.uri,
+            dry_run=bool(params.get("dry_run", False)),
+            confirm=bool(params.get("confirm", False)),
         )
 
     def m_clone_create(self, params: dict[str, Any]) -> dict[str, Any]:

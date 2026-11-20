@@ -5,10 +5,10 @@ lifecycle choice: it is available in every installer, needs no guest driver and
 resumes reliably. The trade-off is a slower noVNC console than QXL or
 virtio-gpu.
 
-**Windows 3D acceleration is not covered by this page.** It remains a private
-lab experiment with test signing, Secure Boot off and a SPICE-only console; it
-is not part of 0.2.0, not a 0.3.0 commitment, and not support for PCIe/VFIO
-passthrough or commercial vGPU.
+**Windows 3D acceleration is not covered by this page.** It is an experimental
+lab preview with test signing, Secure Boot off and a SPICE-only console; it is
+not support for PCIe/VFIO passthrough or commercial vGPU. See
+[`docs/WINDOWS-3D-PREVIEW.md`](docs/WINDOWS-3D-PREVIEW.md).
 
 There is no single video model that is best for every guest. Choose manually in
 the VM's **Hardware** editor according to the table below.

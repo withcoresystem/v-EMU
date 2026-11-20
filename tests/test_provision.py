@@ -552,6 +552,19 @@ class CreateVmTests(unittest.TestCase):
             ]
         )
         self.assertTrue(seal.sysprepped)
+        compact = build_parser().parse_args(
+            [
+                "snapshot",
+                "compact",
+                "--domain",
+                "win-lab",
+                "--dry-run",
+                "--yes",
+            ]
+        )
+        self.assertEqual(compact.func.__name__, "_cmd_snapshot_compact")
+        self.assertTrue(compact.dry_run)
+        self.assertTrue(compact.yes)
 
     def test_vm_create_from_iso(self) -> None:
         from vemu import service
@@ -604,6 +617,7 @@ class CreateVmTests(unittest.TestCase):
             self.assertTrue(Path(result["unattend_iso"]).is_file())
             self.assertEqual(captured["started"], "win-lab")
             domain = ET.fromstring(captured["xml"])
+            self.assertEqual(domain.find("clock").get("offset"), "localtime")
             self.assertEqual(len(domain.findall("./devices/disk")), 4)
             usb_targets = domain.findall("./devices/disk/target[@bus='usb']")
             self.assertEqual(len(usb_targets), 1)
@@ -679,6 +693,7 @@ class CreateVmTests(unittest.TestCase):
             self.assertEqual(result["disk_bus"], "virtio")
             self.assertEqual(result["nic_model"], "virtio")
             domain = ET.fromstring(captured["xml"])
+            self.assertEqual(domain.find("clock").get("offset"), "utc")
             self.assertIsNone(domain.find("./features/hyperv"))
             self.assertEqual(domain.find("os").get("firmware"), "efi")
             self.assertEqual(

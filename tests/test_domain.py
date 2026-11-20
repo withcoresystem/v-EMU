@@ -33,6 +33,7 @@ class DomainTests(unittest.TestCase):
         self.assertIsNotNone(os_element)
         self.assertEqual(os_element.get("firmware"), "efi")
         self.assertEqual(root.find("os/type").get("arch"), "x86_64")
+        self.assertEqual(root.find("clock").get("offset"), "utc")
 
         disk = root.find("./devices/disk")
         self.assertIsNotNone(disk)
@@ -184,6 +185,26 @@ class DomainTests(unittest.TestCase):
         )
         self.assertIsNotNone(root.find("./devices/serial"))
         self.assertIsNotNone(root.find("./devices/console"))
+
+    def test_windows_localtime_clock(self) -> None:
+        spec = DomainSpec(
+            name="win-clock",
+            disks=[Disk(path="/tmp/x.qcow2")],
+            os_type="windows",
+            clock_offset="localtime",
+            hyperv=True,
+        )
+        root = ET.fromstring(spec.to_xml())
+        self.assertEqual(root.find("clock").get("offset"), "localtime")
+        self.assertIsNotNone(root.find("./clock/timer[@name='hypervclock']"))
+
+    def test_clock_offset_validation(self) -> None:
+        with self.assertRaises(ValidationError):
+            DomainSpec(
+                name="bad-clock",
+                disks=[Disk(path="/tmp/x.qcow2")],
+                clock_offset="local",
+            ).to_xml()
 
     def test_video_memory_requires_vga_or_qxl(self) -> None:
         with self.assertRaises(ValidationError):

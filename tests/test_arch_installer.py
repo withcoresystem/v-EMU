@@ -31,6 +31,12 @@ class ArchInstallerTests(unittest.TestCase):
             "libvirt-qemu",
             "vemud.service",
             "QEMU_EFI-pflash.raw",
+            "freerdp",
+            "python-keyring",
+            "/usr/share/vemu/windows",
+            "vemu-guest-optimize.ps1",
+            "/var/lib/vemu/seamless",
+            "/var/lib/vemu/experimental3d",
             "Image Builder",
         ):
             self.assertIn(expected, text)

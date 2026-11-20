@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>vEMU soak</title>
+<style>html,body{margin:0;background:#111;color:#eee;font:16px sans-serif}canvas{display:block}</style>
+<canvas id="c" width="960" height="640"></canvas>
+<script>
+const c = document.getElementById('c');
+const x = c.getContext('2d');
+let n = 0;
+function frame() {
+  n++;
+  x.fillStyle = `hsl(${n % 360}, 60%, 18%)`;
+  x.fillRect(0, 0, c.width, c.height);
+  for (let i = 0; i < 800; i++) {
+    x.fillStyle = `hsl(${(n + i * 7) % 360}, 80%, 60%)`;
+    x.beginPath();
+    x.arc(Math.random() * c.width, Math.random() * c.height,
+          Math.random() * 24, 0, Math.PI * 2);
+    x.fill();
+  }
+  requestAnimationFrame(frame);
+}
+frame();
+setInterval(() => fetch('/ping?' + Date.now()).catch(() => {}), 4000);
+</script>

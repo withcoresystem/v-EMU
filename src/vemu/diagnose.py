@@ -230,6 +230,73 @@ def _qemu_system_x86() -> str | None:
     return str(fallback) if fallback.is_file() else None
 
 
+def _experimental3d_status() -> dict[str, Any]:
+    """Report the experimental 3D host security state for Doctor."""
+    try:
+        from . import experimental3d
+
+        states = experimental3d.list_states()
+        seccomp = experimental3d.seccomp_value()
+    except Exception as exc:  # noqa: BLE001 - Doctor must stay usable
+        return {
+            "check": _check(
+                "Experimental 3D host security",
+                False,
+                f"cannot inspect state: {exc}",
+                required=False,
+            ),
+            "data": {"states": [], "restorable": False},
+        }
+    backup = Path("/etc/libvirt/qemu.conf.vemu-3d-backup")
+    enabled = [
+        item for item in states if item.get("enabled")
+    ]
+    off = seccomp in {"0", "false", "off", "no"}
+    restorable = bool(off and not enabled)
+    if seccomp == "unknown":
+        check = _check(
+            "Experimental 3D host security",
+            False,
+            "cannot read seccomp_sandbox from /etc/libvirt/qemu.conf",
+            required=False,
+        )
+    elif off:
+        detail = (
+            f"seccomp_sandbox={seccomp}; "
+            f"{len(states)} experimental 3D state(s)"
+        )
+        if enabled:
+            detail += " (enabled: " + ", ".join(
+                str(item.get("domain")) for item in enabled
+            ) + ")"
+        if backup.is_file():
+            detail += f"; backup {backup}"
+        else:
+            detail += "; no backup; restore will set seccomp_sandbox=1"
+        check = _check(
+            "Experimental 3D host security",
+            False,
+            detail,
+            required=False,
+        )
+    else:
+        detail = f"seccomp_sandbox={seccomp}; no experimental 3D host change"
+        check = _check(
+            "Experimental 3D host security", True, detail, required=False
+        )
+    return {
+        "check": check,
+        "data": {
+            "states": states,
+            "enabled": [str(item.get("domain")) for item in enabled],
+            "seccomp_sandbox": seccomp,
+            "backup": str(backup) if backup.is_file() else "",
+            "fallback": not backup.is_file(),
+            "restorable": restorable,
+        },
+    }
+
+
 def run_checks(uri: str = "qemu:///system", *, config: str | None = None) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
 
@@ -511,8 +578,12 @@ def run_checks(uri: str = "qemu:///system", *, config: str | None = None) -> dic
             )
         )
 
+    experimental3d = _experimental3d_status()
+    checks.append(experimental3d["check"])
+
     return {
         "ok": all(item["ok"] for item in checks if item["required"]),
         "checks": checks,
         "security": security,
+        "experimental3d": experimental3d["data"],
     }

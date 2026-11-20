@@ -414,6 +414,82 @@ class RealChainServiceTests(unittest.TestCase):
             (self.chain_dir / "disk-vda-0002.qcow2").exists()
         )
 
+    def test_compact_flattens_chain_and_updates_domain(self) -> None:
+        manager = ChainManager(self.chain_dir)
+        manager.snapshot("S1")
+        payload, updates = self._run(
+            self._xml("0002"),
+            lambda: service.snapshots_compact("vm1", confirm=True),
+        )
+        self.assertTrue(payload["compacted"])
+        self.assertEqual(len(payload["layers"]), 1)
+        self.assertEqual(payload["snapshot_model"], 2)
+        self.assertEqual(
+            updates,
+            [
+                {
+                    str(self.chain_dir / "disk-vda-0002.qcow2"): str(
+                        self.chain_dir / "disk-vda-0001.qcow2"
+                    )
+                }
+            ],
+        )
+        chain = manager.load()
+        self.assertEqual(chain.active_set(), "0001")
+        self.assertFalse(
+            (self.chain_dir / "disk-vda-0002.qcow2").exists()
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SeamlessSnapshotProtectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.env = mock.patch.dict(
+            "os.environ", {"XDG_STATE_HOME": self.temp.name}
+        )
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        base = Path(self.temp.name) / "vemu" / "seamless"
+        base.mkdir(parents=True)
+        service._write_rollback_manifest(
+            "vm1",
+            {
+                "domain": "vm1",
+                "layer": "0002",
+                "xml_backup": str(base / "vm1.domain.xml"),
+                "xml_sha256": "0" * 64,
+            },
+        )
+
+    def test_delete_refuses_seamless_checkpoint(self) -> None:
+        manager = FakeManager(Path("/tmp/chain"))
+        manager.delete = lambda *_args, **_kwargs: None
+
+        class Context:
+            def __enter__(self):
+                return FakeBackend()
+
+            def __exit__(self, *_args):
+                return False
+
+        with mock.patch.object(
+            service, "LibvirtBackend", return_value=Context()
+        ), mock.patch.object(
+            service, "_require_stopped", return_value=Path("/tmp/chain")
+        ), mock.patch.object(
+            service, "ChainManager", return_value=manager
+        ), mock.patch.object(
+            service, "_relabel", return_value=None
+        ), mock.patch.object(
+            service, "_chain_source_changes", return_value={}
+        ):
+            with self.assertRaises(service.Conflict):
+                service.snapshots_delete("vm1", "0002")
+            self.assertTrue(
+                service._rollback_manifest_path("vm1").exists()
+            )

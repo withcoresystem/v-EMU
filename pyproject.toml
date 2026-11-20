@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vemu"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lab-first desktop virtualization for Linux, built on QEMU/KVM and libvirt"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,7 @@ Issues = "https://github.com/withcoresystem/v-EMU/issues"
 [project.optional-dependencies]
 libvirt = ["libvirt-python"]
 ui = ["PySide6"]
+keyring = ["keyring"]
 
 [project.scripts]
 vemu = "vemu.cli:main"
@@ -44,4 +45,11 @@ vemu = ["py.typed"]
     "assets/icons/NOTICE-*",
     "assets/fonts/*.ttf",
     "assets/fonts/LICENSE-*",
+]
+
+[tool.setuptools.data-files]
+"share/vemu/windows" = [
+    "contrib/windows/README.md",
+    "contrib/windows/profiles.json",
+    "contrib/windows/vemu-guest-optimize.ps1",
 ]

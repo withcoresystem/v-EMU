@@ -7,61 +7,97 @@ declarative labs on the KVM stack you already trust.**
 
 v-EMU is a desktop application for repeatable, self-contained labs on one Linux
 host. It drives QEMU/KVM and libvirt directly: no second hypervisor, no web
-console, no control plane, and no cluster to babysit. Templates, storage,
-networks, consoles and lab definitions live in one place, with a CLI for the
-same operations.
+control plane, no cluster to babysit. Templates, storage, networks, consoles
+and lab definitions live in one place, with a CLI for the same operations.
 
-> **Status:** 0.2.0 release. A thin `.run` installer is built from the same
-> tag and published on GitHub Releases.
+> **Status:** 0.3.0 release — the final broad host release. Fedora/RHEL-family
+> hosts are the primary, fully supported tier. Debian 13.x, Ubuntu 26.04,
+> openSUSE Leap 16.1 and Arch-based desktops are secondary/experimental tiers.
+> A host-only Fedora/RHEL-family maintenance tree (vEMU-RHEL) is next.
 
-## Why v-EMU
+## What v-EMU does
 
-### The lab is the unit
+### Virtual machines
 
-Most tools stop at "create a VM". v-EMU is built around a **seal → clone → lab**
-cycle: prepare a template once, spin up linked clones, and describe the whole
-lab in `lab.yaml`. `vemu up`, `vemu status` and `vemu down` work on the lab, not
-on a pile of individual domains. Lab bundles can be exported and imported as
-one file.
+- Create VMs from ISO, import OVA/qcow2 images, or adopt existing libvirt VMs.
+- Start, stop, force-off, edit hardware, change media and inspect XML drift.
+- Embedded noVNC, external TigerVNC and SPICE consoles; mini console in the
+  inspector.
+- USB passthrough, guest clipboard, VirtioFS shares and runtime statistics.
+- Read-only protection for external and VFIO/passthrough domains.
 
-### Storage without mystery layers
+### Templates, clones and labs
 
-Every VM has a visible qcow2 chain with v2 metadata. Snapshots are offline
-layers you can see, revert and delete; templates stay immutable; deletion is
-reference-checked and only managed files are removed. Orphan layers show up in
-**Clean garbage** or `vemu gc`, not as silent disk usage. Storage roles keep
-`labs`, `templates` and `isos` separate.
+- **Seal → clone → lab** workflow with immutable templates and linked overlays.
+- Linux cloud-init and Windows OOBE clone paths.
+- Declarative `lab.yaml` labs with `vemu up`, `vemu status` and `vemu down`.
+- Portable lab bundles for moving a complete lab between hosts.
 
-### Networks included
+### Storage and snapshots
 
-NAT, isolated and LAN-bridge profiles are defined in the app, applied through
-libvirt and nftables, and visible in the network map. DHCP reservations, port
-forwards, multiple NICs and link control are part of the same workflow — no
-hand-written XML required.
+- Visible qcow2 chains with v2 metadata; no hidden layers.
+- Offline snapshots you can list, revert and delete.
+- **Compact chain** merges the active branch and reclaims host space.
+- Storage roles for labs, templates and ISOs; reference-checked deletion and
+  garbage collection.
+- Permission, ownership and label repair from Storage or `vemu doctor`.
 
-### Desktop-first, CLI-complete
+### Networking
 
-The PySide6 shell is a real desktop app: one UI instance per user, embedded
-noVNC consoles, a mini console in the inspector, and non-modal dialogs for
-everyday work. Modal prompts are reserved for destructive confirmations and
-errors. Every important operation is also available through `vemu`, so the UI
-and scripts use the same engine.
+- NAT, isolated and LAN-bridge profiles applied through libvirt and nftables.
+- DHCP ranges, static reservations, port forwards and multiple NICs.
+- Network map with live guest/interface visibility.
 
-### Adopt existing VMs, gradually
+### Windows seamless mode
 
-Already running VMs in libvirt, Cockpit or virt-manager? They stay **External
-and read-only by default**. When you are ready, adopt the XML while keeping the
-disks in place, or run a full migration that rebuilds the disk as a v-EMU chain
-and keeps the old disks until you are satisfied. See
-[`MANUAL.md`](MANUAL.md) → **Import / adopt / migrate**.
+- Prepare a Windows 10/11 Pro/Enterprise guest for RemoteApp/RAIL publishing.
+- Open selected Windows programs as Linux desktop shortcuts and manage the
+  published program list.
+- **Pause** stops publishing but keeps the guest, RDP/SSH setup and checkpoint.
+- **Remove and restore** returns to the pre-seamless checkpoint and removes host
+  state. Requires FreeRDP >= 3.26.
+- See [`docs/WINDOWS-SEAMLESS.md`](docs/WINDOWS-SEAMLESS.md).
 
-### Small scope, honest limits
+### Image Builder
 
-v-EMU is one host, one user, local VMs. It deliberately does not ship clustering,
-HA, live migration, a web console or GPU passthrough. Guest clipboard and
-VirtioFS have explicit guest-side requirements, documented with tested guests
-and failure messages. What remains is a tool that does local labs well instead
-of pretending to be a cloud.
+- Build qcow2 lab images and branded installer ISOs with upstream
+  `image-builder`.
+- Blueprint import, package lookup, rootless preflight, build log and artifact
+  handling.
+- Installer branding and optional first-boot payloads.
+- **Fedora/RHEL-family hosts only**; Debian, Ubuntu, openSUSE and Arch keep the
+  core features but not Image Builder.
+
+### Operations and host security
+
+- Full CLI parity for VM, template, storage, network, snapshot and lab work.
+- Root `vemud` daemon on a local Unix socket; no telemetry or TCP listener.
+- Doctor checks for KVM, tools, firmware, storage, SELinux/AppArmor and USB.
+- VM delete cleans host shortcuts/icons, supervisor state and keyring entries.
+- Doctor reports experimental 3D host security and can restore `qemu.conf`.
+
+### Experimental Windows 3D (CLI only)
+
+`vemu experimental 3d` is a separate, unsupported experiment for a virtio-gpu
+3D Windows guest. It is **console/SPICE-only**, requires test signing and Secure
+Boot off, and changes host `/etc/libvirt/qemu.conf` with explicit consent. It
+is not a path for RDP, RemoteApp or seamless mode. See
+[`docs/WINDOWS-3D-PREVIEW.md`](docs/WINDOWS-3D-PREVIEW.md).
+
+## Host support
+
+| Tier | Hosts |
+|---|---|
+| Primary — full feature | Fedora 45; AlmaLinux 10.3; RHEL 10.3 (`--standard` + GNOME UI, feature evidence from Fedora) |
+| Secondary — tested | Debian 13.x; Ubuntu/Kubuntu 26.04; openSUSE Leap 16.1; Arch/CachyOS/Omarchy via `contrib/setup-arch.sh` |
+| Edge / best effort | Debian 12; openSUSE Tumbleweed snapshot; Slowroll; newer Fedora pre-release builds; RHEL/Rocky/Alma 9 and older; SLES/SLED |
+| As-is | Kali, Debian 11 and older, and other unlisted distributions |
+
+Fedora/RHEL-family is the primary, fully tested tier and the only Image Builder
+host family. Secondary hosts are tested at a lower tier; package splits,
+FreeRDP versions, Secure Boot/OVMF combinations and rolling-release changes may
+need host-specific workarounds. The full matrix and caveats are in
+[`MANUAL.md`](MANUAL.md#host-support).
 
 ## Requirements
 
@@ -70,29 +106,9 @@ of pretending to be a cloud.
 - `sudo` for host packages, the daemon, groups and firmware.
 - A Wayland desktop for the UI (KDE Plasma, GNOME and COSMIC tested).
 - 20 GiB free for labs plus VM images.
+- For seamless mode: Windows 10/11 Pro/Enterprise and FreeRDP >= 3.26.
 
 There is no TCG-only host mode; cross-architecture TCG is optional for guests.
-
-## Host coverage and feature parity
-
-| Capability | RHEL family | openSUSE | Debian/Ubuntu |
-|---|---|---|---|
-| Core v-EMU: lifecycle, snapshots, storage, networking, VNC | supported | supported | supported |
-| External TigerVNC console | supported* | supported* | supported* |
-| Image Builder (qcow2/ISO) | supported | unavailable | unavailable |
-
-\* Install `tigervnc` (Fedora/RHEL/openSUSE) or `tigervnc-viewer`
-(Debian/Ubuntu); external mode stays disabled when `vncviewer` is missing.
-
-Arch family (CachyOS, Omarchy and similar) is an experimental, core-only path
-through `contrib/setup-arch.sh`; it has no Image Builder and is not part of the
-`.run` payload.
-
-The host matrix covers all three Linux families for core vEMU. **Image Builder
-is intentionally limited to Fedora/RHEL-family hosts in 0.2.0**: Debian and
-openSUSE keep the full core feature set but the Image Builder page shows an
-unsupported-host banner and hides new builds. This is a documented feature gap,
-not a regression in VM lifecycle or console support.
 
 ## Install
 
@@ -102,14 +118,19 @@ From source:
 git clone https://github.com/withcoresystem/v-EMU vEMU
 cd vEMU
 ./setup.sh --precheck
-./setup.sh --standard
+./setup.sh --standard        # x86_64 host
+./setup.sh --full            # also aarch64/riscv64 TCG packages/firmware
 ```
 
-Run as your normal desktop user, not with `sudo`. `--full` adds optional
-aarch64/riscv64 TCG packages where the distribution provides them. After first
-install, reboot or log out/in so group membership applies.
+Run as your normal desktop user, not with `sudo`. After the first install,
+reboot or log out/in so group membership applies. On Arch/CachyOS/Omarchy use
+the separate experimental installer:
 
-Or download `vemu-0.2.0-x86_64.run` from
+```bash
+./contrib/setup-arch.sh --full
+```
+
+Or download `vemu-0.3.0-x86_64.run` from
 [GitHub Releases](https://github.com/withcoresystem/v-EMU/releases/latest),
 verify it with the adjacent `.sha256`, then run it. The `.run` uses the same
 setup logic and keeps its extracted source under `~/.local/share/vemu/source`;
@@ -129,65 +150,59 @@ vemu ui
 Create lab storage and a NAT network from the first-run wizard, or from
 **Storage** and **Networks**. Then use **Virtual machines → New VM**.
 
+## 0.3.0 highlights
+
+- Windows seamless mode with pause and pre-seamless restore.
+- Active-chain compaction and host-space reclamation.
+- VM delete cleanup for shortcuts, host state and keyring entries.
+- Doctor host-security status and guarded 3D qemu.conf restore.
+- Experimental Windows 3D remains CLI-only and unsupported.
+- Fedora/RHEL-family becomes the primary host tier; the next tree,
+  vEMU-RHEL, narrows host support only.
+
 ## Documentation
 
 | Document | Contents |
 |---|---|
-| [`MANUAL.md`](MANUAL.md) | Install, daily use, adoption, networking, storage, security, CLI |
+| [`MANUAL.md`](MANUAL.md) | Install, daily use, adoption, networking, storage, seamless, security, CLI |
 | [`BUILDER.md`](BUILDER.md) | Image Builder qcow2/ISO flow, blueprints, firstboot payloads |
 | [`docs/BUILDER-BRANDING.md`](docs/BUILDER-BRANDING.md) | Installer ISO branding and asset standards |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Implemented 0.2.0 process and trust boundaries |
 | [`GRAPHICS.md`](GRAPHICS.md) | Video models, sleep/resume and guest trade-offs |
 | [`docs/USER-GUIDE.md`](docs/USER-GUIDE.md) | Concise in-app guide |
-| [`docs/ARCH-EXPERIMENTAL.md`](docs/ARCH-EXPERIMENTAL.md) | Arch/CachyOS/Omarchy experimental core-only installer |
+| [`docs/WINDOWS-SEAMLESS.md`](docs/WINDOWS-SEAMLESS.md) | Seamless prepare, program management, pause, remove and recovery |
+| [`docs/WINDOWS-3D-PREVIEW.md`](docs/WINDOWS-3D-PREVIEW.md) | Experimental Windows 3D: prerequisites, risks and rollback |
+| [`docs/ARCH-EXPERIMENTAL.md`](docs/ARCH-EXPERIMENTAL.md) | Arch/CachyOS/Omarchy experimental installer and validation |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | Public `.run` build, clean-host test and GitHub release process |
-| [`docs/release-notes/v0.2.0.md`](docs/release-notes/v0.2.0.md) | Release notes for 0.2.0 |
+| [`docs/release-notes/v0.3.0.md`](docs/release-notes/v0.3.0.md) | 0.3.0 release notes and validation |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Issues, pull requests and scope |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability reporting and trust model |
 | [`DISCLAIMER.md`](DISCLAIMER.md) | Warranty, data/backup and liability terms |
-
-Experimental helpers live in the source tree: [`templates/`](templates/) has the
-full blueprint set, [`contrib/setup-arch.sh`](contrib/setup-arch.sh) installs the
-Arch-family core, and [`contrib/windows/README.md`](contrib/windows/README.md)
-documents the standalone Windows guest optimization helper. These are not part
-of the `.run` payload and are not supported features.
-
-## Roadmap
-
-The roadmap is directional, not a release promise.
-
-### 0.3.0 (planned)
-
-- **Bug fixes and reliability** — regressions, host compatibility and
-  documentation fixes reported against 0.2.0.
-- **Windows guest seamless mode** — optional helper to prepare a Windows 10/11
-  Pro/Enterprise guest for RemoteApp and open individual applications as Linux
-  windows. The full desktop remains the fallback; QXL/VGA stays the default.
-  This is the only committed Windows guest graphics path for 0.3.0.
-- **Storage compaction** — merge or discard old snapshot layers and reclaim
-  disk space without recreating the VM.
-
-**Windows 3D acceleration is not a 0.3.0 commitment.** It remains a private lab
-experiment; a post-0.2.0 driver spike will decide whether any preview is opened.
-It is not support for PCIe/VFIO passthrough or commercial vGPU.
-
-Image Builder host coverage is unchanged in 0.3.0: Fedora/RHEL-family only.
 
 ## Non-goals
 
 - multi-host cluster, scheduler, HA or live migration;
 - remote/web multi-user operation or a remote thick client;
-- 3D acceleration as a supported feature, or GPU/PCIe passthrough; a Windows 3D
-  lab experiment may be evaluated separately but is not a release commitment;
+- supported 3D acceleration, commercial vGPU/GPU partitioning, or managed
+  PCIe/VFIO passthrough. The Windows 3D preview is a separate CLI experiment,
+  not support for passthrough or commercial vGPU;
 - macOS guests;
 - live snapshots (snapshots are offline, chain-based);
 - X11 guest clipboard/integration;
+- per-app RDP sessions / multi-session Windows clients as an icon-grouping
+  workaround; v-EMU keeps one shared RAIL session per Windows VM;
 - container management or orchestration (Docker, Podman, Kubernetes);
+- arbitrary storage/network backends;
 - a general-purpose replacement for Proxmox/oVirt/Incus.
+
+## Security
+
+The daemon runs as root and is the trust boundary for libvirt, storage and
+network operations. Do not run the UI as root. There is no telemetry or update
+service; `vemud` has no TCP listener, and Internet access happens only during
+explicit Image Builder or package-lookup actions (plus a firstboot URL fetched
+by the guest itself). See [`SECURITY.md`](SECURITY.md).
 
 ## License
 
-GPL-3.0-or-later. See [`LICENSE`](LICENSE). v-EMU is provided without
-warranty; data, backup and liability terms are in [`DISCLAIMER.md`](DISCLAIMER.md).
-Firmware and bundled assets have their own notices in [`NOTICE`](NOTICE) and
-`firmware/`.
+GPL-3.0-or-later. See [`LICENSE`](LICENSE). Firmware and bundled assets have
+their own notices in [`NOTICE`](NOTICE) and `firmware/`.

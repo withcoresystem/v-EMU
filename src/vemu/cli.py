@@ -14,6 +14,7 @@ from typing import Any
 
 from . import __version__
 from . import diagnose
+from . import experimental3d
 from . import lab
 from . import service
 from .backend import LibvirtBackend
@@ -23,6 +24,17 @@ from .errors import NotFound, ValidationError, VemuError
 from .storage import validate_role
 from .template import list_templates, slugify
 from .provision import DEFAULT_ADMIN_PASSWORD, WINDOWS_EDITIONS
+from .seamless.credentials import (
+    delete_password as delete_rdp_password,
+)
+from .seamless.credentials import (
+    get_password as get_rdp_password,
+)
+from .seamless.credentials import (
+    save_password as save_rdp_password,
+)
+from .seamless.prepare import state_dir as seamless_state_dir
+from .seamless import shortcuts as seamless_shortcuts
 
 
 def _print_table(headers: list[str], rows: list[list[str]]) -> None:
@@ -357,6 +369,938 @@ def _cmd_ssh(args: argparse.Namespace) -> int:
     return subprocess.call(command)
 
 
+def _shortcut_dir() -> str:
+    return str(seamless_shortcuts.applications_dir())
+
+
+def _print_freerdp_note(result: dict) -> None:
+    freerdp = result.get("freerdp") or {}
+    message = str(freerdp.get("message") or "")
+    level = str(freerdp.get("level") or "")
+    if message and level != "ok":
+        print(f"  freerdp: {message}")
+
+
+def _seamless_apps(args: argparse.Namespace) -> dict[str, str]:
+    apps: dict[str, str] = {}
+    for item in getattr(args, "app", []) or []:
+        if "=" not in item:
+            raise ValidationError(
+                f"App '{item}' must use NAME=C:\\path\\app.exe"
+            )
+        name, path = item.split("=", 1)
+        name = name.strip()
+        path = path.strip()
+        if not name or not path:
+            raise ValidationError(
+                f"App '{item}' must use NAME=C:\\path\\app.exe"
+            )
+        apps[name] = path
+    return apps
+
+
+def _cmd_seamless_prepare(args: argparse.Namespace) -> int:
+    params = {
+        "domain": args.domain,
+        "username": args.username,
+        "profile": args.profile,
+        "apps": _seamless_apps(args) or None,
+        "guest_ip": args.ip,
+        "user_hive": args.user_hive,
+        "state_dir": str(seamless_state_dir()),
+        "shortcut_dir": _shortcut_dir(),
+        "snapshot": not args.no_checkpoint,
+        "owner_uid": os.getuid(),
+        "desktop": seamless_shortcuts.desktop_family(),
+    }
+    if _daemon_enabled(args):
+        result = _daemon_call(args, "vm.seamless_prepare", params)
+    else:
+        result = service.vm_seamless_prepare(
+            args.domain,
+            args.username,
+            profile=args.profile,
+            apps=params["apps"],
+            guest_ip=args.ip,
+            user_hive=args.user_hive,
+            state_dir=seamless_state_dir(),
+            shortcut_dir=_shortcut_dir(),
+            uri=args.uri,
+            snapshot=not args.no_checkpoint,
+            owner_uid=os.getuid(),
+            desktop=seamless_shortcuts.desktop_family(),
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    guest = result.get("guest") or {}
+    apps = result.get("apps") or []
+    rdp = result.get("rdp") or {}
+    print(f"Prepared seamless mode for {result.get('domain', args.domain)}")
+    print(f"  guest:   {result.get('host', '')} (build {guest.get('build', '?')})")
+    print(f"  profile: {result.get('profile') or 'disabled'}")
+    print(
+        "  rdp:     "
+        + ("enabled" if rdp.get("fDenyTSConnections") == 0 else "disabled")
+    )
+    print("  apps:    " + (", ".join(item["name"] for item in apps) or "none"))
+    _print_freerdp_note(result)
+    if result.get("reboot_required"):
+        print("  reboot:  Windows Update/servicing is pending; reboot the guest")
+    elif result.get("reboot_recommended"):
+        print("  reboot:  reboot Windows once before first launch")
+    print(
+        "  state:   "
+        + str(
+            Path(result.get("key_path", "")).parent
+            / f"{result.get('domain', args.domain)}.json"
+        )
+    )
+    return 0
+
+
+def _cmd_seamless_status(args: argparse.Namespace) -> int:
+    if _daemon_enabled(args):
+        result = _daemon_call(
+            args,
+            "vm.seamless_status",
+            {
+                "domain": args.domain,
+                "state_dir": str(seamless_state_dir()),
+            },
+        )
+    else:
+        result = service.vm_seamless_status(
+            args.domain,
+            state_dir=seamless_state_dir(),
+            uri=args.uri,
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    state = result.get("state") or {}
+    print(f"{args.domain}: {'prepared' if result.get('prepared') else 'not prepared'}")
+    print(f"  active:  {result.get('active')}")
+    print(f"  running: {result.get('running')}")
+    if state:
+        print(f"  host:    {state.get('host')}")
+        print(f"  user:    {state.get('username')}")
+        print(f"  profile: {state.get('profile') or 'disabled'}")
+        print(
+            "  apps:    "
+            + (", ".join(item.get("name", "") for item in state.get("apps") or []))
+        )
+    freerdp = result.get("freerdp") or {}
+    version = str(freerdp.get("version") or "")
+    level = str(freerdp.get("level") or "")
+    message = str(freerdp.get("message") or "")
+    if version:
+        print(f"  freerdp: {version} ({level})")
+    if message and level != "ok":
+        print(f"    {message}")
+    live = result.get("preflight")
+    if live:
+        print(
+            "  preflight: "
+            + ("supported" if live.get("supported") else "blocked")
+        )
+        for reason in live.get("reasons") or []:
+            print(f"    - {reason}")
+    if result.get("preflight_error"):
+        print(f"  preflight error: {result['preflight_error']}")
+    return 0
+
+
+def _cmd_seamless_apps(args: argparse.Namespace) -> int:
+    if _daemon_enabled(args):
+        result = _daemon_call(
+            args,
+            "vm.seamless_apps",
+            {
+                "domain": args.domain,
+                "include_system": args.include_system,
+                "include_store": args.include_store,
+                "state_dir": str(seamless_state_dir()),
+            },
+        )
+    else:
+        result = service.vm_seamless_apps(
+            args.domain,
+            include_system=args.include_system,
+            include_store=args.include_store,
+            state_dir=seamless_state_dir(),
+            uri=args.uri,
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    for app in result.get("apps") or []:
+        flags = " · software GPU" if app.get("software_gpu") else ""
+        detail = (
+            "Store app"
+            if app.get("source") == "store"
+            else app.get("path", "")
+        )
+        print(f"{app.get('name', ''):<32} {detail}{flags}")
+    return 0
+
+
+def _cmd_seamless_refresh_apps(args: argparse.Namespace) -> int:
+    if _daemon_enabled(args):
+        result = _daemon_call(
+            args,
+            "vm.seamless_refresh_apps",
+            {
+                "domain": args.domain,
+                "include_system": args.include_system,
+                "include_store": args.include_store,
+                "state_dir": str(seamless_state_dir()),
+            },
+        )
+    else:
+        result = service.vm_seamless_refresh_apps(
+            args.domain,
+            include_system=args.include_system,
+            include_store=args.include_store,
+            state_dir=seamless_state_dir(),
+            uri=args.uri,
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    available = result.get("available") or []
+    new = result.get("new") or []
+    missing = result.get("missing") or []
+    print(f"{args.domain}: {len(available)} available program(s)")
+    if new:
+        print("  new:     " + ", ".join(item["name"] for item in new))
+    if missing:
+        print(
+            "  missing: "
+            + ", ".join(item.get("name", "?") for item in missing)
+            + " (still published; remove if uninstalled)"
+        )
+    return 0
+
+
+def _cmd_seamless_remove_app(args: argparse.Namespace) -> int:
+    if _daemon_enabled(args):
+        result = _daemon_call(
+            args,
+            "vm.seamless_remove_app",
+            {
+                "domain": args.domain,
+                "name": args.name,
+                "state_dir": str(seamless_state_dir()),
+                "shortcut_dir": _shortcut_dir(),
+            },
+        )
+    else:
+        result = service.vm_seamless_remove_app(
+            args.domain,
+            args.name,
+            state_dir=seamless_state_dir(),
+            shortcut_dir=_shortcut_dir(),
+            uri=args.uri,
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(f"Removed {args.name} from {args.domain}")
+        if result.get("warning"):
+            print(f"  warning: {result['warning']}")
+    return 0
+
+
+def _cmd_seamless_launch_app(args: argparse.Namespace) -> int:
+    import getpass
+    import sys
+
+    password = ""
+    if args.password_stdin:
+        password = sys.stdin.readline().rstrip("\r\n")
+    try:
+        result = service.vm_seamless_launch_app(
+            args.domain,
+            args.name,
+            state_dir=seamless_state_dir(),
+            display=args.display,
+            password=password or None,
+            multimon=args.multimon,
+            audio_latency=args.audio_latency,
+            audio_quality=args.audio_quality,
+        )
+    except VemuError as exc:
+        if "No saved RDP password" not in str(exc) or not sys.stdin.isatty():
+            raise
+        password = getpass.getpass(
+            f"Windows password for {args.domain}: "
+        )
+        result = service.vm_seamless_launch_app(
+            args.domain,
+            args.name,
+            state_dir=seamless_state_dir(),
+            display=args.display,
+            password=password,
+            multimon=args.multimon,
+            audio_latency=args.audio_latency,
+            audio_quality=args.audio_quality,
+        )
+    if args.save_password and password:
+        state = service.vm_seamless_state(
+            args.domain, state_dir=seamless_state_dir()
+        ).get("state") or {}
+        username = str(state.get("username") or "")
+        if username:
+            save_rdp_password(args.domain, username, password)
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        if result.get("mode") == "supervisor":
+            print(
+                f"Started RAIL supervisor for {args.domain} "
+                f"(pid {result.get('supervisor_pid')})"
+            )
+        else:
+            print(
+                f"Launched {result.get('name')} in the existing "
+                f"RAIL session"
+            )
+        paused = result.get("stopped_other_supervisors") or []
+        if paused:
+            print("Paused RAIL supervisor(s): " + ", ".join(paused))
+            _notify_paused_supervisors(paused)
+        _print_freerdp_note(result)
+    return 0
+
+
+def _cmd_seamless_stop(args: argparse.Namespace) -> int:
+    result = service.vm_seamless_stop(
+        args.domain, state_dir=seamless_state_dir()
+    )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(
+            f"{args.domain}: RAIL supervisor "
+            + ("stopped" if result.get("supervisor_stopped") else "not running")
+        )
+        if result.get("seeds_stopped"):
+            print(f"  RAIL seed processes stopped: {result['seeds_stopped']}")
+    return 0
+
+
+def _cmd_seamless_shortcuts(args: argparse.Namespace) -> int:
+    if _daemon_enabled(args):
+        result = _daemon_call(
+            args,
+            "vm.seamless_sync_shortcuts",
+            {
+                "domain": args.domain,
+                "state_dir": str(seamless_state_dir()),
+                "shortcut_dir": _shortcut_dir(),
+                "desktop": seamless_shortcuts.desktop_family(),
+            },
+        )
+    else:
+        result = service.vm_seamless_sync_shortcuts(
+            args.domain,
+            state_dir=seamless_state_dir(),
+            shortcut_dir=_shortcut_dir(),
+            desktop=seamless_shortcuts.desktop_family(),
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(
+            f"{args.domain}: {len(result.get('shortcuts') or [])} "
+            "desktop shortcut(s)"
+        )
+        for item in result.get("shortcuts") or []:
+            print(f"  {item}")
+        for warning in result.get("warnings") or []:
+            print(f"  warning: {warning}")
+    return 0
+
+
+def _cmd_seamless_deactivate(args: argparse.Namespace) -> int:
+    if _daemon_enabled(args):
+        result = _daemon_call(
+            args,
+            "vm.seamless_deactivate",
+            {
+                "domain": args.domain,
+                "state_dir": str(seamless_state_dir()),
+                "shortcut_dir": _shortcut_dir(),
+            },
+        )
+    else:
+        result = service.vm_seamless_deactivate(
+            args.domain,
+            state_dir=seamless_state_dir(),
+            shortcut_dir=_shortcut_dir(),
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(f"{args.domain}: seamless mode deactivated")
+        if result.get("removed_apps"):
+            print(
+                "  unpublished: "
+                + ", ".join(result["removed_apps"])
+            )
+        if result.get("note"):
+            print(f"  {result['note']}")
+    return 0
+
+
+def _daemon_seamless_username(
+    args: argparse.Namespace, domain: str
+) -> str:
+    """Read the Windows account before a daemon-side delete/rollback.
+
+    The keyring belongs to the desktop user, not to root's daemon process, so
+    the CLI forgets the saved password locally after the daemon finishes.
+    """
+    try:
+        payload = _daemon_call(
+            args,
+            "vm.seamless_status",
+            {
+                "domain": domain,
+                "state_dir": str(seamless_state_dir()),
+            },
+        )
+    except VemuError:
+        return ""
+    state = payload.get("state") or {}
+    return str(state.get("username") or "")
+
+
+def _cmd_seamless_rollback(args: argparse.Namespace) -> int:
+    params = {
+        "domain": args.domain,
+        "state_dir": str(seamless_state_dir()),
+        "shortcut_dir": _shortcut_dir(),
+        "host_only": args.host_only,
+        "force": args.force,
+        "forget_password": args.forget_password,
+    }
+    daemon = _daemon_enabled(args)
+    username = (
+        _daemon_seamless_username(args, args.domain)
+        if daemon and args.forget_password
+        else ""
+    )
+    if daemon:
+        result = _daemon_call(args, "vm.seamless_rollback", params)
+    else:
+        result = service.vm_seamless_rollback(
+            args.domain,
+            state_dir=seamless_state_dir(),
+            shortcut_dir=_shortcut_dir(),
+            uri=args.uri,
+            host_only=args.host_only,
+            force=args.force,
+            forget_password=args.forget_password,
+        )
+    if args.forget_password and username:
+        delete_rdp_password(args.domain, username)
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    if result.get("reverted"):
+        print(
+            f"{args.domain}: restored seamless checkpoint "
+            f"{result.get('layer', '')}"
+        )
+    elif result.get("host_only"):
+        print(f"{args.domain}: removed host-side seamless state only")
+    print(
+        f"  shortcuts removed: {len(result.get('removed_shortcuts') or [])}"
+    )
+    print(f"  icons removed:     {len(result.get('removed_icons') or [])}")
+    print(f"  files removed:     {len(result.get('removed_files') or [])}")
+    print("  guest:             stopped (start and re-activate to use seamless)")
+    return 0
+
+
+def _cmd_seamless_video(args: argparse.Namespace) -> int:
+    if _daemon_enabled(args):
+        result = _daemon_call(
+            args,
+            "vm.seamless_video",
+            {"domain": args.domain, "model": args.model},
+        )
+    else:
+        result = service.vm_seamless_video(
+            args.domain, model=args.model, uri=args.uri
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    elif result.get("changed"):
+        print(
+            f"{args.domain}: video {result.get('previous')} -> "
+            f"{result.get('video')}"
+        )
+        if result.get("restart_required"):
+            print("  restart the VM to activate the new video model")
+    else:
+        print(f"{args.domain}: video already {result.get('video')}")
+    return 0
+
+
+def _notify_paused_supervisors(paused: list[str]) -> None:
+    """Show a desktop notification for shortcut launches.
+
+    Published-app shortcuts run with Terminal=false, so the CLI text is not
+    visible. When another VM's RAIL session is paused to keep the one-active-VM
+    policy, tell the user through the desktop instead of switching silently.
+    """
+    if not paused or sys.stdout.isatty():
+        return
+    notify = shutil.which("notify-send")
+    if not notify:
+        return
+    try:
+        subprocess.run(
+            [
+                notify,
+                "-a",
+                "v-EMU",
+                "v-EMU seamless",
+                "Paused the RAIL session for " + ", ".join(paused),
+            ],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def _cmd_seamless_test_app(args: argparse.Namespace) -> int:
+    import getpass
+    import sys
+
+    state_info = service.vm_seamless_state(
+        args.domain, state_dir=seamless_state_dir()
+    )
+    state = state_info.get("state") or {}
+    username = args.username or str(state.get("username") or "")
+    if args.forget_password:
+        if not username:
+            raise ValidationError(
+                "Username is unknown; activate seamless mode first."
+            )
+        removed = delete_rdp_password(args.domain, username)
+        print(
+            f"{args.domain}: saved password "
+            + ("removed" if removed else "was not present")
+        )
+        return 0
+    password = ""
+    if args.password_stdin:
+        password = sys.stdin.readline().rstrip("\r\n")
+    elif username:
+        try:
+            password = get_rdp_password(args.domain, username) or ""
+        except VemuError as exc:
+            print(f"note: {exc}", file=sys.stderr)
+        if password:
+            print(
+                f"Using saved keyring password for {username} "
+                f"(use --forget-password to change it).",
+                file=sys.stderr,
+            )
+    if not password:
+        password = getpass.getpass(
+            f"Windows password for {username or 'the guest'}: "
+        )
+    if not password:
+        raise ValidationError("A Windows password is required for test launch.")
+    # This launches a desktop client, so it must stay in the caller's session
+    # instead of going through the root daemon.
+    result = service.vm_seamless_test_app(
+        args.domain,
+        args.name,
+        password,
+        timeout=args.timeout,
+        settle=args.settle,
+        display=args.display,
+        multimon=args.multimon,
+        audio_latency=args.audio_latency,
+        audio_quality=args.audio_quality,
+        state_dir=seamless_state_dir(),
+    )
+    saved = False
+    if result.get("ok") and args.save_password:
+        if not username:
+            raise ValidationError(
+                "Username is unknown; cannot save the password."
+            )
+        saved = save_rdp_password(args.domain, username, password)
+        result["password_saved"] = saved
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        _print_freerdp_note(result)
+        paused = result.get("stopped_other_supervisors") or []
+        if result.get("ok"):
+            print(
+                f"{args.name}: connected and stayed open "
+                f"({result.get('elapsed')}s)"
+            )
+            if saved:
+                print(f"  password saved for {username} in the OS keyring")
+        else:
+            print(f"{args.name}: FAILED — {result.get('reason')}")
+            if result.get("log"):
+                print(result["log"])
+        if paused:
+            print("Paused RAIL supervisor(s): " + ", ".join(paused))
+    return 0 if result.get("ok") else 1
+
+
+def _cmd_seamless_add_app(args: argparse.Namespace) -> int:
+    if _daemon_enabled(args):
+        result = _daemon_call(
+            args,
+            "vm.seamless_add_app",
+            {
+                "domain": args.domain,
+                "name": args.name,
+                "path": args.path,
+                "arguments": args.arguments,
+                "compat": not args.no_compat,
+                "verified": args.verified,
+                "state_dir": str(seamless_state_dir()),
+                "shortcut_dir": _shortcut_dir(),
+                "desktop": seamless_shortcuts.desktop_family(),
+            },
+        )
+    else:
+        result = service.vm_seamless_add_app(
+            args.domain,
+            args.name,
+            args.path,
+            arguments=args.arguments,
+            compat=not args.no_compat,
+            verified=args.verified,
+            state_dir=seamless_state_dir(),
+            shortcut_dir=_shortcut_dir(),
+            uri=args.uri,
+            desktop=seamless_shortcuts.desktop_family(),
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(f"Added {args.name} -> {args.path}")
+        combined = (result.get("entry") or {}).get("arguments")
+        if combined:
+            print(f"  arguments: {combined}")
+    return 0
+
+
+def _experimental_gate() -> None:
+    if not experimental3d.experimental_enabled():
+        raise VemuError(
+            "Experimental features are disabled. Open Settings in the "
+            "desktop app and enable 'Experimental features', or write "
+            f"{experimental3d.experimental_config_path()} with "
+            '{"enabled": true}.'
+        )
+
+
+def _experimental_confirm(
+    action: str, lines: list[str], assume_yes: bool
+) -> None:
+    for line in lines:
+        print(line)
+    if assume_yes:
+        return
+    if not sys.stdin.isatty():
+        raise ValidationError(
+            "This command changes a VM and needs confirmation. Rerun with "
+            "--yes in a non-interactive environment."
+        )
+    answer = input(f"Type '{action}' to continue: ").strip()
+    if answer.casefold() != action:
+        raise VemuError("Aborted; nothing was changed.")
+
+
+def _experimental_state_dir() -> str | None:
+    """Return an explicit state override, or None for the daemon default.
+
+    The daemon owns the shared ``/var/lib/vemu/experimental3d`` state. Passing a
+    user-level directory from every CLI call made ``enable`` write state that a
+    later ``status``/``revert`` call could not find. ``--direct`` development
+    runs fall back to the module's user state directory when no override is
+    set.
+    """
+    value = os.environ.get("VEMU_EXPERIMENTAL_STATE_DIR")
+    return value or None
+
+
+def _experimental_status(args: argparse.Namespace) -> dict[str, Any]:
+    params = {
+        "domain": args.domain,
+        "state_dir": _experimental_state_dir(),
+        "seamless_state_dir": str(seamless_state_dir()),
+    }
+    if _daemon_enabled(args):
+        return _daemon_call(args, "experimental3d.status", params)
+    return experimental3d.status(
+        args.domain,
+        state_dir=params["state_dir"],
+        seamless_state_dir=params["seamless_state_dir"],
+        uri=args.uri,
+    )
+
+
+def _cmd_experimental_3d_status(args: argparse.Namespace) -> int:
+    result = _experimental_status(args)
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    state = result.get("state") or {}
+    host = result.get("host") or {}
+    print(f"Experimental 3D: {args.domain}")
+    print(f"  enabled:    {'yes' if result.get('enabled') else 'no'}")
+    if state:
+        print(f"  status:     {state.get('status', 'unknown')}")
+        print(f"  release:    {state.get('release', '-')}")
+        print(f"  checkpoint: {'present' if result.get('snapshot_present') else 'missing'}")
+    graphics = ", ".join(result.get("graphics") or []) or "-"
+    video = ", ".join(result.get("video") or []) or "-"
+    print(f"  console:    {graphics}")
+    print(f"  video:      {video}")
+    adapters = result.get("adapters") or []
+    for adapter in adapters:
+        if isinstance(adapter, dict):
+            status = str(adapter.get("Status") or "unknown")
+            code = adapter.get("ConfigManagerErrorCode")
+            detail = f", {status}"
+            if code not in (None, 0):
+                detail += f" code {code}"
+            print(
+                f"  adapter:    {adapter.get('Name', '-')} "
+                f"({adapter.get('DriverVersion', '-')}{detail})"
+            )
+    if host:
+        print(f"  render:     {host.get('render_node') or '-'}")
+        print(f"  seccomp:    {host.get('seccomp_sandbox', 'unknown')}")
+        print(f"  viewer:     {host.get('remote_viewer') or 'missing'}")
+    seamless = result.get("seamless") or {}
+    if seamless.get("prepared"):
+        print(
+            "  seamless:   "
+            + ("active (will be paused)" if seamless.get("active") else "paused")
+        )
+    for warning in result.get("warnings") or []:
+        print(f"  warning:    {warning}")
+    return 0
+
+
+def _cmd_experimental_3d_enable(args: argparse.Namespace) -> int:
+    _experimental_gate()
+    current = _experimental_status(args)
+    if current.get("enabled"):
+        print(f"{args.domain} is already converted to experimental 3D.")
+        return 0
+    host = current.get("host") or {}
+    lines = [
+        f"Enabling experimental 3D for {args.domain} is unsupported.",
+        "It will:",
+        "  - stop the VM and create an 'experimental-3d' checkpoint;",
+        "  - switch the console from VNC to SPICE and the video device to",
+        "    virtio-vga-gl with Venus;",
+        f"  - download and install vgpu3d {experimental3d.RELEASE} in the guest;",
+        "  - enable Windows test signing, reinstall the display adapter and",
+        "    reboot the guest up to twice;",
+        "  - require OpenSSH Server, QEMU guest agent, TCP 22 and a Windows",
+        "    profile for the requested user.",
+    ]
+    if (host.get("seccomp_sandbox") not in {"0", "false", "off", "no"}):
+        lines.append(
+            "  - change /etc/libvirt/qemu.conf to seccomp_sandbox = 0. This "
+            "is HOST-WIDE and affects every VM. A backup is written."
+        )
+    if (current.get("seamless") or {}).get("active"):
+        lines.append(
+            "  - pause seamless mode first; its desktop shortcuts will stop "
+            "working and must be activated again after 3D is reverted."
+        )
+    if not host.get("remote_viewer"):
+        lines.append("  - install virt-viewer (remote-viewer) on the host.")
+    lines.append("3D is console/SPICE only: no RDP, RemoteApp or seamless GPU.")
+    if args.dry_run:
+        lines.append("Dry run: nothing will be changed.")
+    else:
+        _experimental_confirm("enable", lines, args.yes)
+    params = {
+        "domain": args.domain,
+        "username": args.username,
+        "state_dir": _experimental_state_dir(),
+        "seamless_state_dir": str(seamless_state_dir()),
+        "seamless_shortcut_dir": _shortcut_dir(),
+        "accept_host_security_change": args.accept_host_security_change,
+        "assume_yes": True,
+        "dry_run": args.dry_run,
+        "keep_broken": args.keep_broken,
+    }
+    if _daemon_enabled(args):
+        result = _daemon_call(args, "experimental3d.enable", params)
+    else:
+        result = experimental3d.enable(
+            args.domain,
+            args.username,
+            state_dir=params["state_dir"],
+            seamless_state_dir=params["seamless_state_dir"],
+            seamless_shortcut_dir=params["seamless_shortcut_dir"],
+            uri=args.uri,
+            accept_host_security_change=args.accept_host_security_change,
+            assume_yes=True,
+            dry_run=args.dry_run,
+            keep_broken=args.keep_broken,
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    if result.get("dry_run"):
+        print(f"Dry run for {args.domain}: no changes written.")
+        print("Planned XML:")
+        print(result.get("xml", ""))
+        return 0
+    driver = result.get("driver") or {}
+    print(f"Experimental 3D enabled for {args.domain}")
+    print(f"  adapter:   {driver.get('adapter', '-')}")
+    print(f"  version:   {driver.get('version', '-')}")
+    if not driver.get("matches_pin", True):
+        print(
+            "  warning:   driver version does not match the pinned "
+            f"{experimental3d.DRIVER_VERSION}"
+        )
+    print(f"  console:   SPICE (remote-viewer)")
+    print(f"  installer: {result.get('installer', '-')}")
+    if result.get("seamless_paused"):
+        print(
+            "  seamless:  paused; activate it again after "
+            "'vemu experimental 3d revert'."
+        )
+    print(
+        "  note:      unsupported and console-only. Do not use with "
+        "seamless/RDP; use 'vemu experimental 3d revert' to roll back."
+    )
+    return 0
+
+
+def _cmd_experimental_3d_revert(args: argparse.Namespace) -> int:
+    _experimental_confirm(
+        "revert",
+        [
+            f"Revert experimental 3D for {args.domain}?",
+            "The VM is stopped, the experimental-3d checkpoint is restored,",
+            "the original XML and qemu.conf backup are restored, and the",
+            "experimental state is removed. Seamless mode stays paused.",
+        ],
+        args.yes,
+    )
+    params = {
+        "domain": args.domain,
+        "state_dir": _experimental_state_dir(),
+    }
+    if _daemon_enabled(args):
+        result = _daemon_call(args, "experimental3d.revert", params)
+    else:
+        result = experimental3d.revert(
+            args.domain, state_dir=params["state_dir"], uri=args.uri
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    print(f"Reverted experimental 3D for {args.domain}")
+    if result.get("note"):
+        print(f"  note: {result['note']}")
+    print("  The VM is shut down; start it when ready.")
+    return 0
+
+
+def _cmd_experimental_3d_repair(args: argparse.Namespace) -> int:
+    _experimental_confirm(
+        "repair",
+        [
+            f"Repair the experimental 3D adapter for {args.domain}?",
+            "If Windows reports Code 37, the helper resets the VgpuBootGuard",
+            "value and restarts the display device. The screen may flicker.",
+            "The VM must be running.",
+        ],
+        args.yes,
+    )
+    params = {
+        "domain": args.domain,
+        "state_dir": _experimental_state_dir(),
+    }
+    if _daemon_enabled(args):
+        result = _daemon_call(args, "experimental3d.repair", params)
+    else:
+        result = experimental3d.repair(
+            args.domain, state_dir=params["state_dir"], uri=args.uri
+        )
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    driver = result.get("driver") or {}
+    print(f"Experimental 3D repair: {args.domain}")
+    print(f"  result:  {result.get('status', 'unknown')}")
+    print(f"  adapter: {driver.get('adapter', '-')}")
+    print(f"  version: {driver.get('version', '-')}")
+    print(
+        "  status:  "
+        f"{driver.get('status', 'unknown')} "
+        f"(code {driver.get('problem_code', 0)})"
+    )
+    return 0
+
+
+def _cmd_experimental_3d_restore_host(args: argparse.Namespace) -> int:
+    _experimental_confirm(
+        "restore-host",
+        [
+            "Restore host qemu.conf after experimental 3D?",
+            "Uses the vEMU 3D backup, or sets seccomp_sandbox=1 when no backup",
+            "exists. Host-wide and restarts libvirt. It is refused while any",
+            "experimental 3D VM is still enabled or any VM is running.",
+        ],
+        args.yes,
+    )
+    params: dict[str, Any] = {}
+    if _daemon_enabled(args):
+        result = _daemon_call(args, "experimental3d.restore_host", params)
+    else:
+        result = experimental3d.restore_host_security(uri=args.uri)
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    if not result.get("changed"):
+        print(
+            "Host security was already restored "
+            f"(seccomp_sandbox={result.get('seccomp_sandbox', 'unknown')})."
+        )
+        return 0
+    if result.get("fallback"):
+        print("No backup was found; set seccomp_sandbox=1 (secure default).")
+    else:
+        print("Restored host qemu.conf from the experimental 3D backup.")
+    if result.get("states_updated"):
+        print(
+            "  updated state: "
+            + ", ".join(result["states_updated"])
+        )
+    print("  Restart any VMs you need after libvirt is back.")
+    return 0
+
+
 def _cmd_console(args: argparse.Namespace) -> int:
     if args.serial:
         try:
@@ -607,6 +1551,75 @@ def _cmd_snapshot_delete(args: argparse.Namespace) -> int:
         args.json,
         f"Deleted snapshot {args.layer} from {args.domain}.",
     )
+    return 0
+
+
+def _cmd_snapshot_compact(args: argparse.Namespace) -> int:
+    params = {
+        "domain": args.domain,
+        "dry_run": args.dry_run,
+        "confirm": args.yes,
+        "uri": args.uri,
+    }
+    if _daemon_enabled(args):
+        method = (
+            "snapshots.compact_plan"
+            if args.dry_run
+            else "snapshots.compact"
+        )
+        payload = _daemon_call(args, method, params)
+    else:
+        payload = service.snapshots_compact(
+            args.domain,
+            args.uri,
+            dry_run=args.dry_run,
+            confirm=args.yes,
+        )
+    if args.dry_run:
+        reclaim = int(payload.get("reclaim_bytes", 0) or 0)
+        reclaim_text = (
+            _human(reclaim) if reclaim > 0 else "none (may need extra space)"
+        )
+        lines = [
+            f"Compact plan for {args.domain}:",
+            f"  layers: {payload.get('layer_count', 0)} "
+            f"({payload.get('snapshot_count', 0)} snapshot(s))",
+            f"  reclaim: ~{reclaim_text}",
+            f"  required free: {_human(payload.get('required_bytes', 0))} "
+            f"(available {_human(payload.get('available_bytes', 0))})",
+        ]
+        warnings = payload.get("warnings") or []
+        if warnings:
+            lines.append("  warnings:")
+            lines.extend(f"    - {item}" for item in warnings)
+        if not payload.get("supported"):
+            lines.append("  blocked:")
+            lines.extend(
+                f"    - {item}" for item in payload.get("reasons", [])
+            )
+        else:
+            lines.append("  dry-run: no changes made.")
+        _emit(payload, args.json, "\n".join(lines))
+        return 0
+    reclaim = int(payload.get("reclaim_bytes", 0) or 0)
+    host_reclaim = payload.get("host_reclaim_bytes")
+    if isinstance(host_reclaim, int) and host_reclaim > 0:
+        reclaim = host_reclaim
+    reclaimed = (
+        f"reclaimed {_human(reclaim)}"
+        if reclaim > 0
+        else "chain compacted; disk usage may not shrink"
+    )
+    message = (
+        f"Compacted {args.domain}: {reclaimed}; "
+        f"active layer is {payload.get('active')}."
+    )
+    warnings = payload.get("warnings") or []
+    if warnings:
+        message += "\nWarnings:\n" + "\n".join(
+            f"- {item}" for item in warnings
+        )
+    _emit(payload, args.json, message)
     return 0
 
 
@@ -1364,23 +2377,40 @@ def _cmd_delete_vm(args: argparse.Namespace) -> int:
         "domain": args.domain,
         "delete_storage": args.delete_storage,
         "force": args.force,
+        "state_dir": str(seamless_state_dir()),
+        "shortcut_dir": _shortcut_dir(),
         "uri": args.uri,
     }
-    if _daemon_enabled(args):
+    daemon = _daemon_enabled(args)
+    username = (
+        _daemon_seamless_username(args, args.domain)
+        if daemon and args.delete_storage
+        else ""
+    )
+    if daemon:
         payload = _daemon_call(args, "domain.delete", params)
     else:
         payload = service.domain_delete(
             args.domain,
             delete_storage=args.delete_storage,
             force=args.force,
+            state_dir=params["state_dir"],
+            shortcut_dir=params["shortcut_dir"],
             uri=args.uri,
         )
+    if username:
+        delete_rdp_password(args.domain, username)
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
     print(f"Deleted VM {args.domain}")
     for path in payload.get("storage_deleted", []):
         print(f"  removed storage: {path}")
+    if not args.delete_storage:
+        print(
+            "  seamless/3D host state kept for recovery; "
+            "use --delete-storage to purge it"
+        )
     for warning in payload.get("warnings", []):
         print(f"  warning: {warning}")
     return 0
@@ -3123,6 +4153,369 @@ def build_parser() -> argparse.ArgumentParser:
     ssh_parser.add_argument("--network-config")
     ssh_parser.set_defaults(func=_cmd_ssh)
 
+    seamless = sub.add_parser(
+        "seamless", help="Prepare Windows RemoteApp/seamless mode."
+    )
+    seamless_sub = seamless.add_subparsers(
+        dest="seamless_command", required=True
+    )
+    seamless_prepare = seamless_sub.add_parser(
+        "prepare", help="Set up optimization, SSH, RDP and RemoteApp."
+    )
+    seamless_prepare.add_argument("domain")
+    seamless_prepare.add_argument(
+        "--username", required=True, help="Windows account for SSH/RDP."
+    )
+    seamless_prepare.add_argument(
+        "--profile",
+        choices=("Safe", "Balanced", "3D"),
+        default="Safe",
+        help="Guest optimization profile (default: Safe).",
+    )
+    seamless_prepare.add_argument(
+        "--app",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+        help="Add a RemoteApp allowlist entry; repeatable.",
+    )
+    seamless_prepare.add_argument(
+        "--user-hive",
+        help=r"Optional NTUSER.DAT, e.g. C:\Users\ProUser\NTUSER.DAT.",
+    )
+    seamless_prepare.add_argument("--ip", help="Override the guest IP.")
+    seamless_prepare.add_argument(
+        "--no-checkpoint",
+        action="store_true",
+        help="Do not create the pre-prepare rollback snapshot.",
+    )
+    seamless_prepare.add_argument("--json", action="store_true")
+    seamless_prepare.add_argument("--uri", default="qemu:///system")
+    seamless_prepare.add_argument("--socket")
+    seamless_prepare.add_argument("--direct", action="store_true")
+    seamless_prepare.set_defaults(func=_cmd_seamless_prepare)
+
+    seamless_status = seamless_sub.add_parser(
+        "status", help="Show saved seamless state and live preflight."
+    )
+    seamless_status.add_argument("domain")
+    seamless_status.add_argument("--json", action="store_true")
+    seamless_status.add_argument("--uri", default="qemu:///system")
+    seamless_status.add_argument("--socket")
+    seamless_status.add_argument("--direct", action="store_true")
+    seamless_status.set_defaults(func=_cmd_seamless_status)
+
+    seamless_apps = seamless_sub.add_parser(
+        "apps", help="List discovered programs through the prepared SSH key."
+    )
+    seamless_apps.add_argument("domain")
+    seamless_apps.add_argument(
+        "--include-system",
+        action="store_true",
+        help="Include built-in C:\\Windows tools.",
+    )
+    seamless_apps.add_argument(
+        "--include-store",
+        action="store_true",
+        help="Include Store/MSIX/WinUI3 apps (hidden by default).",
+    )
+    seamless_apps.add_argument("--json", action="store_true")
+    seamless_apps.add_argument("--uri", default="qemu:///system")
+    seamless_apps.add_argument("--socket")
+    seamless_apps.add_argument("--direct", action="store_true")
+    seamless_apps.set_defaults(func=_cmd_seamless_apps)
+
+    seamless_add = seamless_sub.add_parser(
+        "add-app", help="Add one executable to the RemoteApp allowlist."
+    )
+    seamless_add.add_argument("domain")
+    seamless_add.add_argument("name")
+    seamless_add.add_argument("path")
+    seamless_add.add_argument(
+        "--arguments", default="", help="Optional program arguments."
+    )
+    seamless_add.add_argument(
+        "--no-compat",
+        action="store_true",
+        help="Do not add the software-GPU flags for Chromium/Electron apps.",
+    )
+    seamless_add.add_argument(
+        "--verified",
+        action="store_true",
+        help="Mark the program as test-launch verified.",
+    )
+    seamless_add.add_argument("--json", action="store_true")
+    seamless_add.add_argument("--uri", default="qemu:///system")
+    seamless_add.add_argument("--socket")
+    seamless_add.add_argument("--direct", action="store_true")
+    seamless_add.set_defaults(func=_cmd_seamless_add_app)
+
+    seamless_refresh = seamless_sub.add_parser(
+        "refresh-apps", help="Rescan programs in the guest."
+    )
+    seamless_refresh.add_argument("domain")
+    seamless_refresh.add_argument(
+        "--include-system",
+        action="store_true",
+        help="Include built-in C:\\Windows tools.",
+    )
+    seamless_refresh.add_argument(
+        "--include-store",
+        action="store_true",
+        help="Include Store/MSIX/WinUI3 apps (hidden by default).",
+    )
+    seamless_refresh.add_argument("--json", action="store_true")
+    seamless_refresh.add_argument("--uri", default="qemu:///system")
+    seamless_refresh.add_argument("--socket")
+    seamless_refresh.add_argument("--direct", action="store_true")
+    seamless_refresh.set_defaults(func=_cmd_seamless_refresh_apps)
+
+    seamless_remove = seamless_sub.add_parser(
+        "remove-app", help="Remove a published RemoteApp and shortcut."
+    )
+    seamless_remove.add_argument("domain")
+    seamless_remove.add_argument("name")
+    seamless_remove.add_argument("--json", action="store_true")
+    seamless_remove.add_argument("--uri", default="qemu:///system")
+    seamless_remove.add_argument("--socket")
+    seamless_remove.add_argument("--direct", action="store_true")
+    seamless_remove.set_defaults(func=_cmd_seamless_remove_app)
+
+    seamless_deactivate = seamless_sub.add_parser(
+        "deactivate",
+        help="Pause publishing seamless programs; keep guest setup.",
+    )
+    seamless_deactivate.add_argument("domain")
+    seamless_deactivate.add_argument("--json", action="store_true")
+    seamless_deactivate.add_argument("--uri", default="qemu:///system")
+    seamless_deactivate.add_argument("--socket")
+    seamless_deactivate.add_argument("--direct", action="store_true")
+    seamless_deactivate.set_defaults(func=_cmd_seamless_deactivate)
+
+    seamless_rollback = seamless_sub.add_parser(
+        "rollback",
+        aliases=["restore"],
+        help="Remove seamless mode, restore the pre-prepare checkpoint and clean host state.",
+    )
+    seamless_rollback.add_argument("domain")
+    seamless_rollback.add_argument(
+        "--host-only",
+        action="store_true",
+        help="Remove host-side state/shortcuts without touching the guest.",
+    )
+    seamless_rollback.add_argument(
+        "--force",
+        action="store_true",
+        help="Force shutdown and allow a mismatched XML backup checksum.",
+    )
+    seamless_rollback.add_argument(
+        "--forget-password",
+        action="store_true",
+        help="Also remove the saved keyring password.",
+    )
+    seamless_rollback.add_argument("--json", action="store_true")
+    seamless_rollback.add_argument("--uri", default="qemu:///system")
+    seamless_rollback.add_argument("--socket")
+    seamless_rollback.add_argument("--direct", action="store_true")
+    seamless_rollback.set_defaults(func=_cmd_seamless_rollback)
+
+    seamless_launch = seamless_sub.add_parser(
+        "launch-app",
+        help="Launch a published app via the one RAIL supervisor.",
+    )
+    seamless_launch.add_argument("domain")
+    seamless_launch.add_argument("name")
+    seamless_launch.add_argument("--password-stdin", action="store_true")
+    seamless_launch.add_argument(
+        "--save-password",
+        action="store_true",
+        help="Save an interactively entered password in the keyring.",
+    )
+    seamless_launch.add_argument("--display")
+    seamless_launch.add_argument(
+        "--multimon",
+        action="store_true",
+        help="Enable FreeRDP multi-monitor for the supervisor (first launch).",
+    )
+    seamless_launch.add_argument(
+        "--audio-latency", type=int, default=200,
+        help="Audio target latency in ms (default: 200).",
+    )
+    seamless_launch.add_argument(
+        "--audio-quality", choices=("dynamic", "medium", "high"),
+        default="dynamic", help="FreeRDP audio quality mode.",
+    )
+    seamless_launch.add_argument("--json", action="store_true")
+    seamless_launch.set_defaults(func=_cmd_seamless_launch_app)
+
+    seamless_stop = seamless_sub.add_parser(
+        "stop", help="Stop the long-lived RAIL supervisor."
+    )
+    seamless_stop.add_argument("domain")
+    seamless_stop.add_argument("--json", action="store_true")
+    seamless_stop.set_defaults(func=_cmd_seamless_stop)
+
+    seamless_shortcuts = seamless_sub.add_parser(
+        "shortcuts", help="Recreate Linux .desktop shortcuts."
+    )
+    seamless_shortcuts.add_argument("domain")
+    seamless_shortcuts.add_argument("--json", action="store_true")
+    seamless_shortcuts.add_argument("--uri", default="qemu:///system")
+    seamless_shortcuts.add_argument("--socket")
+    seamless_shortcuts.add_argument("--direct", action="store_true")
+    seamless_shortcuts.set_defaults(func=_cmd_seamless_shortcuts)
+
+    seamless_video = seamless_sub.add_parser(
+        "video", help="Set QXL/VGA for a stopped or running Windows VM."
+    )
+    seamless_video.add_argument("domain")
+    seamless_video.add_argument(
+        "--model", choices=("qxl", "vga"), default="qxl"
+    )
+    seamless_video.add_argument("--json", action="store_true")
+    seamless_video.add_argument("--uri", default="qemu:///system")
+    seamless_video.add_argument("--socket")
+    seamless_video.add_argument("--direct", action="store_true")
+    seamless_video.set_defaults(func=_cmd_seamless_video)
+
+    seamless_test = seamless_sub.add_parser(
+        "test-app",
+        help="Open one RAIL app for a compatibility check (desktop session).",
+    )
+    seamless_test.add_argument("domain")
+    seamless_test.add_argument("name")
+    seamless_test.add_argument(
+        "--username", help="Only used in the password prompt."
+    )
+    seamless_test.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="Read the Windows password from stdin instead of prompting.",
+    )
+    seamless_test.add_argument(
+        "--save-password",
+        action="store_true",
+        help="Save a successful password in the OS keyring.",
+    )
+    seamless_test.add_argument(
+        "--forget-password",
+        action="store_true",
+        help="Remove the saved keyring password and exit.",
+    )
+    seamless_test.add_argument("--timeout", type=float, default=30)
+    seamless_test.add_argument("--settle", type=float, default=8)
+    seamless_test.add_argument("--display")
+    seamless_test.add_argument(
+        "--multimon",
+        action="store_true",
+        help="Enable FreeRDP multi-monitor for the test RAIL window.",
+    )
+    seamless_test.add_argument(
+        "--audio-latency", type=int, default=200,
+        help="Audio target latency in ms (default: 200).",
+    )
+    seamless_test.add_argument(
+        "--audio-quality", choices=("dynamic", "medium", "high"),
+        default="dynamic", help="FreeRDP audio quality mode.",
+    )
+    seamless_test.add_argument("--json", action="store_true")
+    seamless_test.set_defaults(func=_cmd_seamless_test_app)
+
+    experimental = sub.add_parser(
+        "experimental",
+        help="Unsupported, experimental features (Settings gate).",
+    )
+    experimental_sub = experimental.add_subparsers(
+        dest="experimental_feature", required=True
+    )
+    three_d = experimental_sub.add_parser(
+        "3d", help="Experimental Windows 3D via the pinned vgpu3d driver."
+    )
+    three_d_sub = three_d.add_subparsers(dest="action", required=True)
+    three_d_status = three_d_sub.add_parser(
+        "status", help="Show the experimental 3D state and host checks."
+    )
+    three_d_status.add_argument("domain")
+    three_d_status.add_argument("--json", action="store_true")
+    three_d_status.add_argument("--uri", default="qemu:///system")
+    three_d_status.add_argument("--socket")
+    three_d_status.add_argument("--direct", action="store_true")
+    three_d_status.set_defaults(func=_cmd_experimental_3d_status)
+
+    three_d_enable = three_d_sub.add_parser(
+        "enable", help="Convert one VM to SPICE + virtio-vga-gl and install vgpu3d."
+    )
+    three_d_enable.add_argument("domain")
+    three_d_enable.add_argument(
+        "--username",
+        required=True,
+        help="Windows account with a profile; OpenSSH must already work.",
+    )
+    three_d_enable.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation (automation only).",
+    )
+    three_d_enable.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the planned XML and host checks without changing anything.",
+    )
+    three_d_enable.add_argument(
+        "--accept-host-security-change",
+        action="store_true",
+        help=(
+            "Allow the helper to set seccomp_sandbox = 0 in qemu.conf "
+            "(host-wide; back up is kept)."
+        ),
+    )
+    three_d_enable.add_argument(
+        "--keep-broken",
+        action="store_true",
+        help="Do not auto-revert when installation or verification fails.",
+    )
+    three_d_enable.add_argument("--json", action="store_true")
+    three_d_enable.add_argument("--uri", default="qemu:///system")
+    three_d_enable.add_argument("--socket")
+    three_d_enable.add_argument("--direct", action="store_true")
+    three_d_enable.set_defaults(func=_cmd_experimental_3d_enable)
+
+    three_d_revert = three_d_sub.add_parser(
+        "revert", help="Restore the pre-3D checkpoint, XML and host changes."
+    )
+    three_d_revert.add_argument("domain")
+    three_d_revert.add_argument("--yes", action="store_true")
+    three_d_revert.add_argument("--json", action="store_true")
+    three_d_revert.add_argument("--uri", default="qemu:///system")
+    three_d_revert.add_argument("--socket")
+    three_d_revert.add_argument("--direct", action="store_true")
+    three_d_revert.set_defaults(func=_cmd_experimental_3d_revert)
+
+    three_d_repair = three_d_sub.add_parser(
+        "repair",
+        help="Reset a latched VgpuBootGuard (Code 37) and restart the adapter.",
+    )
+    three_d_repair.add_argument("domain")
+    three_d_repair.add_argument("--yes", action="store_true")
+    three_d_repair.add_argument("--json", action="store_true")
+    three_d_repair.add_argument("--uri", default="qemu:///system")
+    three_d_repair.add_argument("--socket")
+    three_d_repair.add_argument("--direct", action="store_true")
+    three_d_repair.set_defaults(func=_cmd_experimental_3d_repair)
+
+    three_d_restore_host = three_d_sub.add_parser(
+        "restore-host",
+        help="Restore qemu.conf after experimental 3D (host-wide, needs no 3D VM).",
+    )
+    three_d_restore_host.add_argument("--yes", action="store_true")
+    three_d_restore_host.add_argument("--json", action="store_true")
+    three_d_restore_host.add_argument("--uri", default="qemu:///system")
+    three_d_restore_host.add_argument("--socket")
+    three_d_restore_host.add_argument("--direct", action="store_true")
+    three_d_restore_host.set_defaults(
+        func=_cmd_experimental_3d_restore_host
+    )
+
     console_parser = sub.add_parser(
         "console", help="Show or open a VM's VNC or SPICE console."
     )
@@ -4057,6 +5450,24 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot_delete.add_argument("--uri", default="qemu:///system")
     snapshot_delete.add_argument("--json", action="store_true")
     snapshot_delete.set_defaults(func=_cmd_snapshot_delete)
+    snapshot_compact = snapshot_sub.add_parser(
+        "compact",
+        help="Merge the active branch into the first layer and reclaim old layers.",
+    )
+    snapshot_compact.add_argument("--domain", required=True)
+    snapshot_compact.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show the reclaim estimate without changing anything.",
+    )
+    snapshot_compact.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm that all snapshot rollback points will be removed.",
+    )
+    snapshot_compact.add_argument("--uri", default="qemu:///system")
+    snapshot_compact.add_argument("--json", action="store_true")
+    snapshot_compact.set_defaults(func=_cmd_snapshot_compact)
     snapshot.set_defaults(func=_cmd_snapshot)
 
     revert = sub.add_parser("revert", help="Switch the active layer.")

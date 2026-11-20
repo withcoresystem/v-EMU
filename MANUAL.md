@@ -1,5 +1,7 @@
 # v-EMU Manual
 
+Version 0.3.0.
+
 > Lab-first desktop virtualization on QEMU/KVM: local, single-user, and built
 > around reusable templates, linked clones and declarative labs.
 >
@@ -18,6 +20,9 @@
 - `sudo` for host packages, the daemon, groups and firmware.
 - A Wayland desktop session for the UI (KDE Plasma, GNOME and COSMIC tested).
 - Free space for lab disks: at least 20 GiB plus the VM images you plan to use.
+- For Windows seamless mode: Windows 10/11 Pro/Enterprise, QXL or VGA video,
+  QEMU guest agent, OpenSSH Server and FreeRDP >= 3.26. Prefer the distribution
+  package; the Flatpak fallback is isolated and has known limitations.
 
 ### Install from source
 
@@ -52,13 +57,19 @@ After the first install, log out and back in so the new `vemu`, `libvirt` and
 
 | Tier | Hosts |
 |---|---|
-| Official | Fedora 45; AlmaLinux 10.3; RHEL 10.3 (`--standard` + GNOME UI); openSUSE Leap 16.1; Tumbleweed snapshot 20261028; Debian 13 |
-| Best effort | Debian 12 |
-| As-is | Ubuntu/Kubuntu 26.04, Slowroll, newer Fedora pre-release builds, SLES/SLED, RHEL/Rocky/Alma 9 and older, Arch/Kali and unlisted distributions |
-| Experimental | Arch/CachyOS/Omarchy: core only via `contrib/setup-arch.sh`; no Image Builder |
+| Primary (full feature) | Fedora 45; AlmaLinux 10.3; RHEL 10.3 (`--standard` + GNOME UI; feature evidence from Fedora) |
+| Secondary (tested, lower priority) | Debian 13.x; Ubuntu/Kubuntu 26.04; openSUSE Leap 16.1; Arch/CachyOS/Omarchy via `contrib/setup-arch.sh` |
+| Edge / best effort | Debian 12; openSUSE Tumbleweed snapshot 20261028; Slowroll; newer Fedora pre-release builds; RHEL/Rocky/Alma 9 and older; SLES/SLED; unlisted distributions |
+
+Fedora/RHEL-family is the only full-feature tier and the only Image Builder
+host family. Debian 13, Ubuntu 26.04, Leap 16.1 and Arch-family are tested at a
+lower tier; their package splits, FreeRDP client version, Secure Boot/OVMF and
+rolling-release changes can need host-specific workarounds. Arch/CachyOS/Omarchy
+have no Image Builder.
 
 Host support only covers installing/running v-EMU; guest OS support is wider.
 Arch-family notes and limitations: [`docs/ARCH-EXPERIMENTAL.md`](docs/ARCH-EXPERIMENTAL.md).
+The summary matrix is in [`README.md#host-support`](README.md#host-support).
 The host must provide KVM. Cross-architecture TCG is optional and slow.
 
 ### First checks
@@ -443,6 +454,16 @@ active layer, parent and size; revert/delete only when the VM is stopped.
 Multi-disk VMs snapshot every disk as one unit. Live snapshots are not part of
 the current scope.
 
+**Compact chain** merges the active branch into the first layer and removes the
+other layers; it keeps the VM definition and base but removes snapshot rollback
+points. It is available only when the chain has at least two layers.
+Non-active branches are discarded, so clone/export a branch first if you need
+it. Run it from the Snapshots dialog or with
+`vemu snapshot compact --domain NAME --dry-run`, then `--yes` to apply. The VM
+must be stopped. To reclaim data deleted inside the guest, delete it, run
+`fstrim -av` in the guest, then compact; compaction itself does not delete
+guest files.
+
 ### 4.6 Image Builder
 
 **Image Builder** creates qcow2 lab images and installer ISOs with the upstream
@@ -454,6 +475,63 @@ Blueprint → Branding → Firstboot → Preflight → Build. qcow2 output can b
 imported as a template after a successful build. Installer ISO branding,
 firstboot payloads, blueprint rules, package lookup and troubleshooting are
 covered in the dedicated guide: [`BUILDER.md`](BUILDER.md).
+
+### 4.7 Windows seamless mode
+
+Seamless mode publishes selected Windows programs as Linux desktop shortcuts
+through FreeRDP RemoteApp/RAIL. It keeps one shared RAIL session per Windows
+VM; it is not a multi-session or per-app RDP replacement. The full console is
+always the fallback.
+
+Prerequisites:
+
+- Windows 10/11 Pro/Enterprise with a local profile and a password.
+- QXL or VGA video, QEMU guest agent and OpenSSH Server.
+- FreeRDP >= 3.26 on the host. Fedora/RHEL-family and the tested secondary
+  hosts use the distribution package where available; Debian 13's older client
+  needs the documented Flatpak fallback.
+- For an imported sysprepped Windows template, use its OOBE answer USB and
+  verify the displayed build before publishing apps.
+
+Typical flow:
+
+1. Start the VM and log in once so the Windows profile exists.
+2. **Seamless Mode → Activate Seamless mode…**, enter the Windows user and
+   password, run **Precheck**, then **Activate**.
+3. **Manage Windows programs…** to add, test, refresh or remove published apps.
+4. To stop, choose **Disable seamless mode…**:
+   - **Pause** stops publishing and removes shortcuts, but keeps the Windows
+     guest, RDP/SSH setup and the pre-seamless checkpoint.
+   - **Remove and restore** restores the pre-seamless checkpoint, removes host
+     shortcuts/state and leaves the VM stopped. It is destructive to guest
+     changes made after the checkpoint.
+   - **Forget saved Windows password** removes the keyring entry in the desktop
+     session.
+
+CLI equivalents:
+
+```bash
+vemu seamless status DOMAIN
+vemu seamless prepare DOMAIN --username USER --profile Safe
+vemu seamless test-app DOMAIN NAME
+vemu seamless deactivate DOMAIN
+vemu seamless rollback DOMAIN --forget-password
+```
+
+If the checkpoint layer was deleted or compacted outside v-EMU, use
+`vemu seamless rollback DOMAIN --host-only` as the recovery path; it removes
+Linux shortcuts/state without touching Windows. Full details and host
+requirements: [`docs/WINDOWS-SEAMLESS.md`](docs/WINDOWS-SEAMLESS.md).
+
+### 4.8 Experimental Windows 3D (CLI only)
+
+`vemu experimental 3d` is a separate, unsupported experiment for a virtio-gpu
+3D Windows guest. It is console/SPICE-only, requires test signing and Secure
+Boot off, and is not a path for RDP, RemoteApp or seamless mode. Enabling it
+changes host `/etc/libvirt/qemu.conf` (`seccomp_sandbox = 0`) and requires
+explicit consent. Doctor reports the host-security state and provides a guarded
+**Restore host security** action after all 3D VMs are reverted or deleted. See
+[`docs/WINDOWS-3D-PREVIEW.md`](docs/WINDOWS-3D-PREVIEW.md).
 
 ## 5. Networking
 
@@ -712,11 +790,12 @@ vemu network leases --network lab-nat
 vemu list
 ```
 
-Known limits: TCG is slow; live snapshots and 3D/GL are not planned for
-0.1/0.2; Windows 3D on virtio-gpu is not supported; Linux clipboard needs
-Wayland, `wl-clipboard` and QGA `guest-exec` (X11 is out of scope); 125% does
-not fit a 1440×900 display; v-EMU is single-host/local-only. Use one display
-and Linux workspaces rather than multi-monitor.
+Known limits: TCG is slow; live snapshots and supported 3D/GPU are out of
+scope; the experimental Windows 3D helper is CLI-only and not a supported
+graphics path; Linux clipboard needs Wayland, `wl-clipboard` and QGA
+`guest-exec` (X11 is out of scope); 125% does not fit a 1440×900 display;
+v-EMU is single-host/local-only. Use one display and Linux workspaces rather
+than multi-monitor.
 
 ## 9. CLI cheat sheet
 
@@ -735,6 +814,8 @@ and Linux workspaces rather than multi-monitor.
 | Storage | `vemu storage list` · `vemu storage inspect --path <path>` |
 | Health | `vemu doctor` |
 | Garbage | `vemu gc <labs>` |
+| Seamless | `vemu seamless prepare/status/test-app/deactivate/rollback ...` |
+| Experimental 3D | `vemu experimental 3d status/enable/revert/repair/restore-host` |
 
 ## 10. Security and trust boundaries
 

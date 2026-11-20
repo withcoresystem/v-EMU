@@ -16,6 +16,7 @@ TOML understood by `image-builder`.
 | `fedora-gnome/` | Fedora 45 GNOME | `generic-qcow2` |
 | `rhel-like-kde/` | AlmaLinux 10.2 KDE | `qcow2` |
 | `rhel-like-gnome/` | AlmaLinux 10.2 GNOME | `qcow2` |
+| `alma-10.3-gnome/` | AlmaLinux 10.3 GNOME | `qcow2` |
 | `rhel-10.3-gnome/` | RHEL 10.3 GNOME server | `qcow2` |
 | `rhel-10.3-kde/` | RHEL 10.3 KDE Plasma (EPEL + CRB) | `qcow2` |
 
@@ -51,16 +52,35 @@ The ISO wizard adds two optional layers on top of the blueprint:
   `VEMU-FBOOT` USB stick or an HTTP(S) URL.
 
 Detailed rules, payload contract and the verification checklist are in
-[`docs/BUILDER-BRANDING.md`](../docs/BUILDER-BRANDING.md).
+[`docs/design/iso-branding.md`](../docs/design/iso-branding.md).
 
 ## Validation status
+
+The lab has also built and exercised additional GNOME/KDE qcow2 and installer
+ISO variants beyond the detailed matrix below. `image-builder list` can expose
+a distro/image type whose base image or repository is not published or
+reachable yet; preflight reports the missing base/repo/package, and that is an
+upstream availability condition, not a v-EMU bug. Re-run the matrix when the
+repository is ready.
+
+AlmaLinux 10.3 is available; `alma-10.3-gnome/` was built and boot-tested
+(imported as `Alma-10.3-GNOME`, cloned, GDM/GNOME Shell 49.5, debloat done).
+Rocky Linux 10.3 was not listed yet at the last check, and RHEL requires
+subscription/entitlement; treat both as upstream availability, not as missing
+v-EMU support.
+
+Validated on Fedora 45 with `image-builder 89.0.0` / `osbuild 193`:
+
+| Template | Manifest | Build | Boot test |
+|---|---|---|---|
+| `alma-10.3-gnome` | pass | 1.7 GB | **pass**: GDM, GNOME Shell 49.5, `graphical.target`, debloat done |
 
 Validated on Fedora 45 with `image-builder 87.0.0` / `osbuild 193`:
 
 | Template | Manifest | Build | Boot test |
 |---|---|---|---|
 | `fedora-kde` | pass | 2.6 GB | boot test with QXL reached greeter; use `--video virtio` for desktop |
-| `fedora-gnome` | pass | 1.8 GB | pending |
+| `fedora-gnome` | pass | 1.8 GB | lab build/boot exercised; detailed pass not recorded here |
 | `rhel-like-kde` | pass | 2.1 GB | **pass with `--video virtio`**: Plasma desktop, `sddm`, vEMU clone + debloat |
 | `rhel-like-gnome` | pass | 1.6 GB | **pass with `--video virtio`**: GDM, GNOME Shell, `en_US.utf8`, fixed U+2236 colon, vEMU debloat |
 

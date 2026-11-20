@@ -926,8 +926,9 @@ if [[ $MODE == "full" && $INSTALL_SYSTEM -eq 1 ]]; then
             pkg_available qemu-riscv64 || \
                 cross_missing+=("qemu-riscv64 (riscv64)")
         elif [[ $DISTRO_FAMILY == "debian" ]]; then
-            pkg_available qemu-system-misc || \
-                cross_missing+=("qemu-system-misc (riscv64)")
+            pkg_available qemu-system-riscv || \
+                pkg_available qemu-system-misc || \
+                cross_missing+=("qemu-system-riscv or qemu-system-misc (riscv64)")
         else
             pkg_available qemu-system-riscv || \
                 cross_missing+=("qemu-system-riscv (riscv64)")
@@ -991,7 +992,7 @@ if [[ $INSTALL_SYSTEM -eq 1 ]]; then
         if pkg_available "${PY_TAG}-pyside6"; then
             packages+=("${PY_TAG}-pyside6")
         fi
-        add_optional_packages virt-viewer
+        add_optional_packages virt-viewer freerdp "${PY_TAG}-keyring"
         if [[ $CROSS_ARCH -eq 1 ]]; then
             add_optional_packages \
                 qemu-arm qemu-riscv64 qemu-uefi-aarch64 qemu-uefi-riscv64
@@ -1023,8 +1024,8 @@ if [[ $INSTALL_SYSTEM -eq 1 ]]; then
         # Optional; custom firmware is used for new VMs.
         add_optional_packages \
             guestfs-tools xorriso dosfstools mtools virt-install \
-            virtiofsd edk2-ovmf virt-viewer libvirt-devel \
-            python3-devel gcc pkgconf-pkg-config \
+            virtiofsd edk2-ovmf virt-viewer freerdp python3-keyring \
+            libvirt-devel python3-devel gcc pkgconf-pkg-config \
             policycoreutils policycoreutils-python-utils selinux-tools
         if [[ $CROSS_ARCH -eq 1 ]]; then
             add_optional_packages \
@@ -1052,6 +1053,7 @@ if [[ $INSTALL_SYSTEM -eq 1 ]]; then
         add_optional_packages \
             libguestfs-tools xorriso dosfstools mtools acl \
             virtiofsd ovmf swtpm-tools \
+            freerdp3-x11 python3-keyring \
             policycoreutils selinux-utils setools semanage-utils \
             python3-pyside6.qtwidgets \
             python3-pyside6.qtwebenginewidgets \
@@ -1059,7 +1061,7 @@ if [[ $INSTALL_SYSTEM -eq 1 ]]; then
             libgbm1 libxkbcommon-x11-0 libnss3 libgtk-3-0t64
         if [[ $CROSS_ARCH -eq 1 ]]; then
             add_optional_packages \
-                qemu-system-arm qemu-system-misc \
+                qemu-system-arm qemu-system-misc qemu-system-riscv \
                 qemu-efi-aarch64 qemu-efi-riscv64
         fi
         missing=()
@@ -1258,6 +1260,9 @@ if [[ $INSTALL_DAEMON -eq 1 ]]; then
     "${SUDO[@]}" install -Dm644 \
         "$ROOT/packaging/vemu.sysusers" /usr/lib/sysusers.d/vemu.conf
     "${SUDO[@]}" systemd-sysusers
+    "${SUDO[@]}" install -d -o root -g vemu -m 0770 /var/lib/vemu
+    "${SUDO[@]}" install -d -o root -g vemu -m 0770 \
+        /var/lib/vemu/seamless /var/lib/vemu/experimental3d
     "${SUDO[@]}" install -Dm644 \
         "$ROOT/packaging/org.vemu.policy" \
         /usr/share/polkit-1/actions/org.vemu.policy
@@ -1316,7 +1321,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 LockPersonality=yes
 Restart=on-failure
 RestartSec=2

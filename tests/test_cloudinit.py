@@ -45,6 +45,7 @@ class CloudInitRenderTests(unittest.TestCase):
         self.assertIn("systemctl enable sshd", text)
         self.assertIn("chpasswd:", text)
         self.assertIn("ssh_pwauth: true", text)
+        self.assertIn("shell: /bin/sh", text)
 
     def test_user_data_requires_credentials(self) -> None:
         with self.assertRaises(ValidationError):

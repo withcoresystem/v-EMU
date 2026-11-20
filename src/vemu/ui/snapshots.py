@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QFormLayout,
     QGroupBox,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QTreeWidget,
@@ -57,6 +59,47 @@ def _created_text(value: object) -> str:
     except ValueError:
         return text[:10]
     return f"{parsed.day:02d}-{_MONTHS[parsed.month - 1]}-{parsed.year:04d}"
+
+
+def _human_bytes(value: int | float) -> str:
+    size = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if size < 1024 or unit == "TiB":
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TiB"
+
+
+class _CompactTask(QThread):
+    """Run a compaction plan or apply call off the GUI thread."""
+
+    done = Signal(object, object)
+
+    def __init__(
+        self,
+        backend,
+        domain: str,
+        *,
+        dry_run: bool,
+        confirm: bool,
+    ) -> None:
+        super().__init__()
+        self._backend = backend
+        self._domain = domain
+        self._dry_run = dry_run
+        self._confirm = confirm
+
+    def run(self) -> None:
+        try:
+            payload = self._backend.snapshots_compact(
+                self._domain,
+                dry_run=self._dry_run,
+                confirm=self._confirm,
+            )
+        except Exception as exc:  # noqa: BLE001 - forwarded to the dialog
+            self.done.emit(None, exc)
+        else:
+            self.done.emit(payload, None)
 
 
 class SnapshotEditDialog(VemuDialog):
@@ -122,6 +165,8 @@ class SnapshotsDialog(VemuDialog):
         self.info: dict[str, Any] = {}
         self.layers: dict[str, dict[str, Any]] = {}
         self.changed = False
+        self._compact_task: _CompactTask | None = None
+        self._compact_mode = "plan"
 
         self.setWindowTitle(f"Snapshots · {domain_name}")
         self.resize(680, 570)
@@ -135,6 +180,13 @@ class SnapshotsDialog(VemuDialog):
         self.state_label.setObjectName("Muted")
         self.state_label.setWordWrap(True)
         layout.addWidget(self.state_label)
+
+        self.compact_progress = QProgressBar()
+        self.compact_progress.setRange(0, 0)
+        self.compact_progress.setFixedHeight(4)
+        self.compact_progress.setTextVisible(False)
+        self.compact_progress.hide()
+        layout.addWidget(self.compact_progress)
 
         self.table = QTreeWidget()
         self.table.setColumnCount(5)
@@ -237,11 +289,19 @@ class SnapshotsDialog(VemuDialog):
         self.delete_button.clicked.connect(self._delete)
         buttons.addWidget(self.delete_button)
 
+        self.compact_button = QPushButton("Compact…")
+        self.compact_button.setObjectName("SecondaryButton")
+        self.compact_button.setToolTip(
+            "Requires at least two chain layers (snapshot + Current)."
+        )
+        self.compact_button.clicked.connect(self._compact)
+        buttons.addWidget(self.compact_button)
+
         buttons.addStretch(1)
-        close_button = QPushButton("Close")
-        close_button.setObjectName("SecondaryButton")
-        close_button.clicked.connect(self.accept)
-        buttons.addWidget(close_button)
+        self.close_button = QPushButton("Close")
+        self.close_button.setObjectName("SecondaryButton")
+        self.close_button.clicked.connect(self.accept)
+        buttons.addWidget(self.close_button)
         layout.addLayout(buttons)
 
         self.refresh()
@@ -349,6 +409,7 @@ class SnapshotsDialog(VemuDialog):
         self.edit_button.setEnabled(False)
         self.revert_button.setEnabled(False)
         self.delete_button.setEnabled(False)
+        self.compact_button.setEnabled(self._can_compact())
         self._show_details()
 
     def _set_headers(self, *labels: str) -> None:
@@ -434,6 +495,13 @@ class SnapshotsDialog(VemuDialog):
             and layer_id == self.info.get("active")
         )
 
+    def _can_compact(self) -> bool:
+        if not bool(self.info.get("managed")):
+            return False
+        if bool(self.info.get("running")):
+            return False
+        return len(self.layers) >= 2
+
     def _selection_changed(self) -> None:
         running = bool(self.info.get("running"))
         selected = self._selected_layer() is not None
@@ -453,6 +521,7 @@ class SnapshotsDialog(VemuDialog):
         self.edit_button.setEnabled(False)
         self.revert_button.setEnabled(False)
         self.delete_button.setEnabled(False)
+        self.compact_button.setEnabled(False)
 
     def _show_details(self) -> None:
         managed = bool(self.info.get("managed"))
@@ -528,6 +597,9 @@ class SnapshotsDialog(VemuDialog):
         revert.setEnabled(can_modify)
         delete = menu.addAction("Delete", self._delete)
         delete.setEnabled(can_modify)
+        menu.addSeparator()
+        compact = menu.addAction("Compact chain…", self._compact)
+        compact.setEnabled(self._can_compact())
         menu.addSeparator()
         copy = menu.addAction(
             "Copy ID",
@@ -690,3 +762,136 @@ class SnapshotsDialog(VemuDialog):
             return
         self.changed = True
         self.refresh()
+
+    # ------------------------------------------------------------------ compaction
+
+    def closeEvent(self, event) -> None:
+        if self._compact_task is not None:
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        if self._compact_task is not None:
+            return
+        super().reject()
+
+    def _compact(self) -> None:
+        if self._compact_task is not None or not self._can_compact():
+            return
+        self._start_compact(dry_run=True, confirm=False)
+
+    def _start_compact(self, *, dry_run: bool, confirm: bool) -> None:
+        self._compact_mode = "plan" if dry_run else "apply"
+        self.compact_button.setEnabled(False)
+        self.create_button.setEnabled(False)
+        self.edit_button.setEnabled(False)
+        self.revert_button.setEnabled(False)
+        self.delete_button.setEnabled(False)
+        self.close_button.setEnabled(False)
+        self.state_label.setText(
+            "Measuring the chain and free space…"
+            if dry_run
+            else "Compacting the chain; this can take a while…"
+        )
+        self.compact_progress.show()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self._compact_task = _CompactTask(
+            self.backend,
+            self.domain_name,
+            dry_run=dry_run,
+            confirm=confirm,
+        )
+        self._compact_task.done.connect(self._compact_done)
+        self._compact_task.finished.connect(self._compact_finished)
+        self._compact_task.start()
+
+    def _compact_done(self, payload, error) -> None:
+        if error is not None:
+            QMessageBox.critical(self, "Compaction failed", str(error))
+            return
+        if self._compact_mode == "plan":
+            self._confirm_compact(payload)
+            return
+        self.changed = True
+        self.refresh()
+        reclaim = int(payload.get("reclaim_bytes", 0) or 0)
+        host_reclaim = payload.get("host_reclaim_bytes")
+        if isinstance(host_reclaim, int) and host_reclaim > 0:
+            reclaim = host_reclaim
+        reclaimed = (
+            f"Reclaimed about {_human_bytes(reclaim)}."
+            if reclaim > 0
+            else "Chain compacted; disk usage may not shrink."
+        )
+        QMessageBox.information(
+            self,
+            "Compaction complete",
+            f"{reclaimed} Active layer: {payload.get('active', '')}.",
+        )
+        warnings = payload.get("warnings") or []
+        if warnings:
+            QMessageBox.warning(
+                self,
+                "Compaction warnings",
+                "\n".join(str(item) for item in warnings),
+            )
+
+    def _confirm_compact(self, plan: dict) -> None:
+        if not plan.get("supported"):
+            reasons = plan.get("reasons") or [
+                "Compaction is not available for this chain."
+            ]
+            QMessageBox.warning(
+                self,
+                "Cannot compact",
+                "\n".join(f"- {item}" for item in reasons),
+            )
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Compact chain")
+        box.setText(f"Compact the snapshot chain for {self.domain_name}?")
+        reclaim = int(plan.get("reclaim_bytes", 0) or 0)
+        reclaim_text = (
+            _human_bytes(reclaim)
+            if reclaim > 0
+            else "none (may need extra space)"
+        )
+        box.setInformativeText(
+            f"Layers: {plan.get('layer_count', 0)} "
+            f"({plan.get('snapshot_count', 0)} snapshot(s))\n"
+            f"Estimated reclaim: {reclaim_text}\n"
+            f"Required free space: "
+            f"{_human_bytes(plan.get('required_bytes', 0))} "
+            f"(available {_human_bytes(plan.get('available_bytes', 0))})\n\n"
+            "This merges the active branch into the first layer, discards "
+            "the other layers and removes all snapshot rollback points."
+        )
+        warnings = plan.get("warnings") or []
+        if warnings:
+            box.setDetailedText(
+                "\n".join(str(item) for item in warnings)
+            )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        self._start_compact(dry_run=False, confirm=True)
+
+    def _compact_finished(self) -> None:
+        QApplication.restoreOverrideCursor()
+        self.compact_progress.hide()
+        if self._compact_task is not None:
+            self._compact_task.deleteLater()
+            self._compact_task = None
+        self.close_button.setEnabled(True)
+        self.compact_button.setEnabled(self._can_compact())
+        self.create_button.setEnabled(
+            bool(self.info.get("managed"))
+            and not bool(self.info.get("running"))
+        )
+        self._selection_changed()

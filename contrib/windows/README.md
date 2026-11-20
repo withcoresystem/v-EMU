@@ -6,14 +6,17 @@ settings are conservative and reversible by reverting the VM snapshot.
 
 The script and its `profiles.json` are intentionally usable **outside v-EMU**:
 copy `contrib/windows/` to a Windows machine, run it elevated, and it works
-without the daemon, UI or any hidden service. It stays public and fully open;
-the future Python `vemu.guest.optimize` module is planned to share the same
-profile data, not to replace or hide this standalone tool.
+without the daemon, UI or any hidden service. It stays public and fully open.
+The `vemu.guest.optimize` Python module uploads these exact files from
+`contrib/windows/` (source tree) or `share/vemu/windows/` (installed package),
+so the product path does not fork the profile data.
 
 The script is inspired by common VDI optimization practice, including the
 Omnissa Horizon OS Optimization Tool. No Omnissa code or template is bundled;
-the profiles were written from functional settings. Design notes and the
-planned shared-module overlay remain in the private development tree.
+the profiles were written from the functional settings and reviewed in
+[`docs/design/windows-guest-optimization.md`](../../docs/design/windows-guest-optimization.md).
+The module/overlay plan is in
+[`docs/design/windows-guest-architecture.md`](../../docs/design/windows-guest-architecture.md).
 
 ## Requirements
 
@@ -101,3 +104,11 @@ Those belong to an explicit disposable/offline tier, not this helper.
 There is no per-item rollback. Revert the VM snapshot, or run the matching
 profile's settings manually. The script is idempotent, so re-running a profile
 is safe.
+
+## Soak test
+
+[`soak/`](soak/) contains a repeatable mixed-workload test for a prepared
+seamless VM: Excel recalculation, Word copy/paste, Edge animation, print jobs,
+clipboard round-trips and VirtioFS saves. It runs in the logged-on RAIL session
+via a scheduled task. See [`soak/README.md`](soak/README.md) for prerequisites,
+host/manual usage and how to interpret the summary.

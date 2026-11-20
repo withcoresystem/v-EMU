@@ -1,8 +1,9 @@
-# v-EMU architecture (0.2.0)
+# v-EMU architecture (0.2.0 baseline)
 
-This document describes the implemented v0.2.0 design. It is a maintenance
-reference, not a feature wish list. Items that were removed or are deliberately
-out of scope are listed at the end.
+This document describes the implemented v0.2.0 design baseline. The 0.3.0
+additions are summarized in [`release-notes/v0.3.0.md`](release-notes/v0.3.0.md).
+It is a maintenance reference, not a feature wish list. Items that were removed
+or are deliberately out of scope are listed at the end.
 
 ## 1. Process model
 

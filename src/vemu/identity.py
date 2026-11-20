@@ -3,6 +3,8 @@
 The reset is deterministic and does not rely on cloud-init or on systemd
 regenerating machine-id on boot. It runs with the VM shut down and expects the
 image to be writable by the caller (the daemon runs as root).
+
+Verified by spike S3a: see ``docs/spikes/S3a-chain-identity.md``.
 """
 
 from __future__ import annotations
