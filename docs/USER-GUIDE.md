@@ -557,7 +557,7 @@ four-step flow and hides ISO blueprints.
 
 This section covers the ISO branding/firstboot layer. Full qcow2/ISO flows,
 blueprint rules, asset standards, package lookup and troubleshooting are in
-`BUILDER.md` in the source tree.
+`docs/BUILDER.md` in the source tree.
 
 ### 12.1 What is branded
 

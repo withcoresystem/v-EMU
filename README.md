@@ -97,7 +97,7 @@ Fedora/RHEL-family is the primary, fully tested tier and the only Image Builder
 host family. Secondary hosts are tested at a lower tier; package splits,
 FreeRDP versions, Secure Boot/OVMF combinations and rolling-release changes may
 need host-specific workarounds. The full matrix and caveats are in
-[`MANUAL.md`](MANUAL.md#host-support).
+[`docs/MANUAL.md`](docs/MANUAL.md#host-support).
 
 ## Requirements
 
@@ -137,7 +137,7 @@ setup logic and keeps its extracted source under `~/.local/share/vemu/source`;
 `--uninstall` removes it.
 
 Full install, first-run, adoption, support matrix and uninstall:
-[`MANUAL.md`](MANUAL.md).
+[`docs/MANUAL.md`](docs/MANUAL.md).
 
 ## Quick start
 
@@ -164,10 +164,10 @@ Create lab storage and a NAT network from the first-run wizard, or from
 
 | Document | Contents |
 |---|---|
-| [`MANUAL.md`](MANUAL.md) | Install, daily use, adoption, networking, storage, seamless, security, CLI |
-| [`BUILDER.md`](BUILDER.md) | Image Builder qcow2/ISO flow, blueprints, firstboot payloads |
+| [`docs/MANUAL.md`](docs/MANUAL.md) | Install, daily use, adoption, networking, storage, seamless, security, CLI |
+| [`docs/BUILDER.md`](docs/BUILDER.md) | Image Builder qcow2/ISO flow, blueprints, firstboot payloads |
 | [`docs/BUILDER-BRANDING.md`](docs/BUILDER-BRANDING.md) | Installer ISO branding and asset standards |
-| [`GRAPHICS.md`](GRAPHICS.md) | Video models, sleep/resume and guest trade-offs |
+| [`docs/GRAPHICS.md`](docs/GRAPHICS.md) | Video models, sleep/resume and guest trade-offs |
 | [`docs/USER-GUIDE.md`](docs/USER-GUIDE.md) | Concise in-app guide |
 | [`docs/WINDOWS-SEAMLESS.md`](docs/WINDOWS-SEAMLESS.md) | Seamless prepare, program management, pause, remove and recovery |
 | [`docs/WINDOWS-3D-PREVIEW.md`](docs/WINDOWS-3D-PREVIEW.md) | Experimental Windows 3D: prerequisites, risks and rollback |

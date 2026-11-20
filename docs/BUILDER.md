@@ -5,7 +5,7 @@ flows, blueprints, package lookup, branding, post-install payloads and
 troubleshooting.
 
 For normal vEMU use, start with [`MANUAL.md`](MANUAL.md) or the in-app guide
-[`docs/USER-GUIDE.md`](docs/USER-GUIDE.md). This file goes deeper and is meant
+[`USER-GUIDE.md`](USER-GUIDE.md). This file goes deeper and is meant
 for people who create or maintain images.
 
 > **Status:** Image Builder is available since 0.2.0 and remains part of the
@@ -23,7 +23,7 @@ for people who create or maintain images.
   root consent prompt.
 - **Local-only.** There is no upload, remote builder or image hosting.
 - Blueprints are native TOML files; the templates under
-  [`templates/`](templates/) are starting points, not fixed policy.
+  [`templates/`](../templates/) are starting points, not fixed policy.
 
 ### Supported hosts and targets
 
@@ -94,7 +94,7 @@ building is not part of this flow; guest TCG is a separate feature.
 
 ### 3.2 Blueprint
 
-Import a TOML file from [`templates/`](templates/) or your own directory. The
+Import a TOML file from [`templates/`](../templates/) or your own directory. The
 Blueprint tab shows the name, version and file hash. Importing does not modify
 the file and does not download anything.
 
@@ -312,7 +312,7 @@ There is no signature or checksum validation: the USB stick or URL is trusted
 input. Prefer HTTPS. A package-installing payload should use configured
 repositories or verify its own downloads.
 
-The example payload [`examples/firstboot-payloads/post-setup.sh`](examples/firstboot-payloads/post-setup.sh)
+The example payload [`../examples/firstboot-payloads/post-setup.sh`](../examples/firstboot-payloads/post-setup.sh)
 is a Fedora/RHEL-family starting point (dnf/rpm only).
 
 ### 5.5 qcow2 and arbitrary post-install scripts
@@ -552,7 +552,7 @@ no telemetry or update checker.
 - The SQLite metadata cache is a local copy of repository data and is safe to
   delete.
 
-Full details: [`SECURITY.md`](SECURITY.md#runtime-network-access).
+Full details: [`../SECURITY.md`](../SECURITY.md#runtime-network-access).
 
 Air-gapped options: build with local repository overrides
 (`VEMU_IMAGE_BUILDER_REPO_DIR`/`--force-repo-dir`), use cached lookup data, use
@@ -609,9 +609,9 @@ USB firstboot payloads, and attach guests to an isolated network.
 
 ## 13. Templates and limits
 
-The templates under [`templates/`](templates/) cover Fedora 45 KDE/GNOME,
+The templates under [`templates/`](../templates/) cover Fedora 45 KDE/GNOME,
 AlmaLinux 10.2 KDE/GNOME and RHEL 10.3 GNOME/KDE. Validation status and known
-limits are in [`templates/README.md`](templates/README.md).
+limits are in [`../templates/README.md`](../templates/README.md).
 
 - RHEL images are subscription-bound and not redistributable.
 - KDE/GNOME images need a sufficiently large root filesystem; keep the
@@ -624,11 +624,11 @@ limits are in [`templates/README.md`](templates/README.md).
 ## 14. Related documents
 
 - [`MANUAL.md`](MANUAL.md) — install, daily use, CLI, networking, storage.
-- [`docs/USER-GUIDE.md`](docs/USER-GUIDE.md) — concise in-app guide.
-- [`SECURITY.md`](SECURITY.md#runtime-network-access) — outbound network and
+- [`USER-GUIDE.md`](USER-GUIDE.md) — concise in-app guide.
+- [`../SECURITY.md`](../SECURITY.md#runtime-network-access) — outbound network and
   trust boundaries.
-- [`templates/README.md`](templates/README.md) — template matrix and validation.
-- [`docs/BUILDER-BRANDING.md`](docs/BUILDER-BRANDING.md) — full branding,
+- [`../templates/README.md`](../templates/README.md) — template matrix and validation.
+- [`BUILDER-BRANDING.md`](BUILDER-BRANDING.md) — full branding,
   Plymouth, firstboot and verification reference.
-- [`examples/firstboot-payloads/post-setup.sh`](examples/firstboot-payloads/post-setup.sh)
+- [`../examples/firstboot-payloads/post-setup.sh`](../examples/firstboot-payloads/post-setup.sh)
   — example payload.

@@ -1078,7 +1078,7 @@ if [[ $INSTALL_SYSTEM -eq 1 ]]; then
         fi
     else
         echo "Unsupported host distribution. Use --no-system after installing" >&2
-        echo "the packages listed in the host support section of MANUAL.md." >&2
+        echo "the packages listed in docs/MANUAL.md." >&2
         exit 1
     fi
 fi

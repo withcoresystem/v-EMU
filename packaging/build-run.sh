@@ -28,8 +28,8 @@ rm -rf \
     "$TMP/vEMU/contrib"
 # Keep the runtime/install surface that the installer needs.
 mkdir -p "$TMP/vEMU/docs" "$TMP/vEMU/docs/images" "$TMP/vEMU/contrib/windows"
-cp "$ROOT/MANUAL.md" "$ROOT/BUILDER.md" "$ROOT/README.md" \
-    "$ROOT/GRAPHICS.md" "$ROOT/LICENSE" "$ROOT/NOTICE" \
+cp "$ROOT/docs/MANUAL.md" "$ROOT/docs/BUILDER.md" "$ROOT/README.md" \
+    "$ROOT/docs/GRAPHICS.md" "$ROOT/LICENSE" "$ROOT/NOTICE" \
     "$ROOT/DISCLAIMER.md" "$ROOT/CONTRIBUTING.md" "$ROOT/SECURITY.md" \
     "$TMP/vEMU/"
 cp "$ROOT/docs/USER-GUIDE.md" "$ROOT/docs/ARCHITECTURE.md" \

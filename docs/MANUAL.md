@@ -40,7 +40,7 @@ Release `.run` installers (`vemu-<version>-x86_64.run`) wrap the same logic;
 verify the adjacent `.sha256` before running one. The installer keeps the
 extracted source it runs from in `~/.local/share/vemu/source` (override with
 `VEMU_SOURCE_DIR`); `--uninstall` removes it. Build and release steps are in
-[`docs/RELEASING.md`](docs/RELEASING.md).
+[`RELEASING.md`](RELEASING.md).
 
 After the first install, log out and back in so the new `vemu`, `libvirt` and
 `kvm` group membership applies.
@@ -68,8 +68,8 @@ rolling-release changes can need host-specific workarounds. Arch/CachyOS/Omarchy
 have no Image Builder.
 
 Host support only covers installing/running v-EMU; guest OS support is wider.
-Arch-family notes and limitations: [`docs/ARCH-EXPERIMENTAL.md`](docs/ARCH-EXPERIMENTAL.md).
-The summary matrix is in [`README.md#host-support`](README.md#host-support).
+Arch-family notes and limitations: [`ARCH-EXPERIMENTAL.md`](ARCH-EXPERIMENTAL.md).
+The summary matrix is in [`../README.md#host-support`](../README.md#host-support).
 The host must provide KVM. Cross-architecture TCG is optional and slow.
 
 ### First checks
@@ -521,7 +521,7 @@ vemu seamless rollback DOMAIN --forget-password
 If the checkpoint layer was deleted or compacted outside v-EMU, use
 `vemu seamless rollback DOMAIN --host-only` as the recovery path; it removes
 Linux shortcuts/state without touching Windows. Full details and host
-requirements: [`docs/WINDOWS-SEAMLESS.md`](docs/WINDOWS-SEAMLESS.md).
+requirements: [`WINDOWS-SEAMLESS.md`](WINDOWS-SEAMLESS.md).
 
 ### 4.8 Experimental Windows 3D (CLI only)
 
@@ -531,7 +531,7 @@ Boot off, and is not a path for RDP, RemoteApp or seamless mode. Enabling it
 changes host `/etc/libvirt/qemu.conf` (`seccomp_sandbox = 0`) and requires
 explicit consent. Doctor reports the host-security state and provides a guarded
 **Restore host security** action after all 3D VMs are reverted or deleted. See
-[`docs/WINDOWS-3D-PREVIEW.md`](docs/WINDOWS-3D-PREVIEW.md).
+[`WINDOWS-3D-PREVIEW.md`](WINDOWS-3D-PREVIEW.md).
 
 ## 5. Networking
 
@@ -841,7 +841,7 @@ than multi-monitor.
 - Report vulnerabilities through the private process in `SECURITY.md`; do not
   open a public issue.
 - v-EMU is provided **as is**, without warranty. You are responsible for
-  backups, guest licences and data; see [`DISCLAIMER.md`](DISCLAIMER.md).
+  backups, guest licences and data; see [`DISCLAIMER.md`](../DISCLAIMER.md).
 
 ### Outbound network access
 
@@ -866,7 +866,7 @@ Connections are made only during explicit actions:
 Package lookup is advisory and does not install anything. Extra repositories
 passed to image-builder with `--extra-repo` are not GPG-checked; only use
 trusted URLs and do not embed credentials in them. Full details and the action
-table are in [`SECURITY.md`](SECURITY.md#runtime-network-access).
+table are in [`SECURITY.md`](../SECURITY.md#runtime-network-access).
 
 ## 11. Support, versions and limits
 

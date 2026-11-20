@@ -1,7 +1,4 @@
 include README.md
-include MANUAL.md
-include BUILDER.md
-include GRAPHICS.md
 include setup.sh
 include contrib/setup-arch.sh
 recursive-include contrib/windows *

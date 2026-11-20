@@ -360,5 +360,5 @@ The current preview has been exercised on `W11-Seamless` with:
 
 ## 11. Related documents
 
-- [`../MANUAL.md`](../MANUAL.md) — install, daily use and host support.
+- [`MANUAL.md`](MANUAL.md) — install, daily use and host support.
 - [`USER-GUIDE.md`](USER-GUIDE.md) — concise in-app guide.

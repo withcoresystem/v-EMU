@@ -88,6 +88,6 @@ template for normal guest setup.
 
 ## Related
 
-- [`../BUILDER.md`](../BUILDER.md) — full Image Builder qcow2/ISO guide.
+- [`BUILDER.md`](BUILDER.md) — full Image Builder qcow2/ISO guide.
 - [`../templates/README.md`](../templates/README.md) — blueprints and ISO
   variants.
