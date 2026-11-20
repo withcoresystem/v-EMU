@@ -7,7 +7,7 @@ domain definitions. Clients connect through ``/run/vemu/vemud.sock``.
 Protocol: one JSON object per line.
 
     -> {"id": 1, "method": "ping", "params": {}}
-    <- {"id": 1, "result": {"pong": true, "version": "0.3.0"}}
+    <- {"id": 1, "result": {"pong": true, "version": "0.3.1"}}
 
 This is intentionally small and dependency-free so it can be audited easily.
 """

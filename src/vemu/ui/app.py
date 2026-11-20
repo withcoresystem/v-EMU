@@ -82,6 +82,18 @@ from .tooltips import (
 from .widgets import EmptyStateTable
 
 
+def _delete_vm_body(running: bool) -> str:
+    """Short, context-aware body for the Delete VM choice."""
+    lines: list[str] = []
+    if running:
+        lines.append("The VM is running and will be forced off first.")
+    lines.append(
+        "Delete VM only keeps the disk chain and recovery files. "
+        "Delete VM and disks removes managed disks and recovery files."
+    )
+    return "\n\n".join(lines)
+
+
 def _read_only_reason(domain: DomainInfo) -> str:
     """Explain why a VM is read-only, including the VFIO passthrough case."""
     if getattr(domain, "passthrough", False):
@@ -3360,21 +3372,7 @@ class MainWindow(QMainWindow):
             return
         if self._blocked_external():
             return
-        message = (
-            "Delete VM only keeps the disk chain and metadata.\n\n"
-            "Delete VM and disks removes v-EMU chain directories, XML "
-            "backups, the drift baseline and share assignments. Unmanaged "
-            "or Partial disks are kept and reported.\n\n"
-            "Both options stop the RAIL supervisor and remove seamless "
-            "shortcuts/icons. Delete VM only keeps seamless/3D state and XML "
-            "for recovery; Delete VM and disks purges them too. Experimental "
-            "3D host qemu.conf changes are never restored automatically."
-        )
-        if domain.state == "running":
-            message = (
-                "The VM is running and will be forced off first.\n\n"
-                + message
-            )
+        message = _delete_vm_body(domain.state == "running")
         choice = ConfirmDialog(
             self,
             title="Delete VM",

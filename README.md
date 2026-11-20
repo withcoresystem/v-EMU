@@ -13,7 +13,7 @@ and lab definitions live in one place, with a CLI for the same operations.
 v-EMU is maintained by **Tran Trung Truc** at **CORESYSTEM VN** —
 [coresystem.vn](https://coresystem.vn).
 
-> **Status:** 0.3.0 release — the final broad host release. Fedora/RHEL-family
+> **Status:** 0.3.1 patch release — the final broad host release. Fedora/RHEL-family
 > hosts are the primary, fully supported tier. Debian 13.x, Ubuntu 26.04,
 > openSUSE Leap 16.1 and Arch-based desktops are secondary/experimental tiers.
 > A host-only Fedora/RHEL-family maintenance tree (vEMU-RHEL) is next.
@@ -133,7 +133,7 @@ the separate experimental installer:
 ./contrib/setup-arch.sh --full
 ```
 
-Or download `vemu-0.3.0-x86_64.run` from
+Or download `vemu-0.3.1-x86_64.run` from
 [GitHub Releases](https://github.com/withcoresystem/v-EMU/releases/latest),
 verify it with the adjacent `.sha256`, then run it. The `.run` uses the same
 setup logic and keeps its extracted source under `~/.local/share/vemu/source`;
@@ -152,6 +152,13 @@ vemu ui
 
 Create lab storage and a NAT network from the first-run wizard, or from
 **Storage** and **Networks**. Then use **Virtual machines → New VM**.
+
+## 0.3.1 patch
+
+- The **Delete VM** dialog is short and context-aware: it only warns when the
+  VM is running and explains the two storage choices.
+- The in-app Guide now documents seamless/3D host-state cleanup during delete.
+- No runtime feature changes; this is a small UI/docs patch on the 0.3.0 base.
 
 ## 0.3.0 highlights
 
@@ -176,6 +183,7 @@ Create lab storage and a NAT network from the first-run wizard, or from
 | [`docs/WINDOWS-3D-PREVIEW.md`](docs/WINDOWS-3D-PREVIEW.md) | Experimental Windows 3D: prerequisites, risks and rollback |
 | [`docs/ARCH-EXPERIMENTAL.md`](docs/ARCH-EXPERIMENTAL.md) | Arch/CachyOS/Omarchy experimental installer and validation |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | Public `.run` build, clean-host test and GitHub release process |
+| [`docs/release-notes/v0.3.1.md`](docs/release-notes/v0.3.1.md) | 0.3.1 patch notes |
 | [`docs/release-notes/v0.3.0.md`](docs/release-notes/v0.3.0.md) | 0.3.0 release notes and validation |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Issues, pull requests and scope |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability reporting and trust model |

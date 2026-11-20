@@ -1,6 +1,6 @@
 # v-EMU Manual
 
-Version 0.3.0.
+Version 0.3.1.
 
 > Lab-first desktop virtualization on QEMU/KVM: local, single-user, and built
 > around reusable templates, linked clones and declarative labs.

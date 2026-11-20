@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vemu"
-version = "0.3.0"
+version = "0.3.1"
 description = "Lab-first desktop virtualization for Linux, built on QEMU/KVM and libvirt"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -267,6 +267,20 @@ class UiTests(unittest.TestCase):
         finally:
             dialog.deleteLater()
 
+    def test_delete_vm_body_is_short_and_context_aware(self) -> None:
+        from vemu.ui.app import _delete_vm_body
+
+        stopped = _delete_vm_body(False)
+        running = _delete_vm_body(True)
+        self.assertNotIn("forced off", stopped)
+        self.assertIn("forced off", running)
+        for text in (stopped, running):
+            self.assertIn("disk chain and recovery files", text)
+            self.assertNotIn("XML backups", text)
+            self.assertNotIn("drift baseline", text)
+            self.assertNotIn("seamless", text.lower())
+            self.assertLess(len(text), 220)
+
     def test_confirm_dialog_keeps_button_labels_visible(self) -> None:
         from PySide6.QtCore import Qt, QTimer
         from PySide6.QtWidgets import QApplication, QPushButton

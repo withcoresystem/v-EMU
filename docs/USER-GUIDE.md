@@ -72,8 +72,12 @@ Useful defaults:
 
 **Everyday controls:** start/shutdown/force-off, console, snapshots, hardware,
 networks, USB and delete are in the VM table and context menu. Deleting a VM
-asks whether to remove its managed disks; snapshots and running state are
-handled by the normal libvirt rules. A paused or suspended guest still exposes
+asks whether to remove its managed disks. **Delete VM only** keeps the chain,
+snapshots and recovery files (including seamless/3D state); **Delete VM and
+disks** removes managed disks and that state. Seamless shortcuts are removed
+either way. Experimental 3D host `qemu.conf` changes are not restored by VM
+deletion; use Doctor after all 3D VMs are gone. A paused or suspended guest
+still exposes
 **Console**; opening it wakes the guest first (ACPI wake for a suspended guest,
 resume for a paused one). If a wake fails, v-EMU reports why before showing the
 console.

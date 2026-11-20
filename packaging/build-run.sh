@@ -6,7 +6,7 @@
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-VERSION=${1:-$(cd "$ROOT" && python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null || echo 0.3.0)}
+VERSION=${1:-$(cd "$ROOT" && python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null || echo 0.3.1)}
 OUT_DIR=${2:-"$ROOT/dist"}
 OUT="$OUT_DIR/vemu-${VERSION}-x86_64.run"
 
