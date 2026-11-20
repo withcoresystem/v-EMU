@@ -27,7 +27,7 @@ rm -rf \
     "$TMP/vEMU/docs" \
     "$TMP/vEMU/contrib"
 # Keep the runtime/install surface that the installer needs.
-mkdir -p "$TMP/vEMU/docs" "$TMP/vEMU/docs/images" "$TMP/vEMU/contrib/windows"
+mkdir -p "$TMP/vEMU/docs" "$TMP/vEMU/contrib/windows"
 cp "$ROOT/docs/MANUAL.md" "$ROOT/docs/BUILDER.md" "$ROOT/README.md" \
     "$ROOT/docs/GRAPHICS.md" "$ROOT/LICENSE" "$ROOT/NOTICE" \
     "$ROOT/DISCLAIMER.md" "$ROOT/CONTRIBUTING.md" "$ROOT/SECURITY.md" \
@@ -36,7 +36,6 @@ cp "$ROOT/docs/USER-GUIDE.md" "$ROOT/docs/ARCHITECTURE.md" \
     "$ROOT/docs/ARCH-EXPERIMENTAL.md" "$ROOT/docs/BUILDER-BRANDING.md" \
     "$ROOT/docs/WINDOWS-SEAMLESS.md" "$ROOT/docs/WINDOWS-3D-PREVIEW.md" \
     "$ROOT/docs/RELEASING.md" "$TMP/vEMU/docs/"
-cp "$ROOT/docs/images/"* "$TMP/vEMU/docs/images/"
 mkdir -p "$TMP/vEMU/docs/release-notes"
 cp "$ROOT/docs/release-notes/"*.md \
     "$TMP/vEMU/docs/release-notes/"

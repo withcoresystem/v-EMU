@@ -1,6 +1,6 @@
 """Design tokens and Qt stylesheet generation.
 
-Tokens are aligned with the CoreSystem visual language (see docs/DESIGN.md):
+Tokens are aligned with the CoreSystem visual language:
 teal accent, neutral surfaces, border-first separation, light and dark parity.
 """
 

@@ -29,16 +29,16 @@ test VM and test data only.
 
 ```bash
 # Start a RAIL session first; the workload must run in the logged-on session.
-vemu seamless launch-app W11-Seamless Excel
+vemu seamless launch-app WIN-VM Excel
 
 # Default: 18 minutes, 20,000 Excel rows, CUPS PDF, Z:
-.venv/bin/python contrib/windows/soak/run_soak.py W11-Seamless
+.venv/bin/python contrib/windows/soak/run_soak.py WIN-VM
 
 # Short smoke run
-.venv/bin/python contrib/windows/soak/run_soak.py W11-Seamless --minutes 1
+.venv/bin/python contrib/windows/soak/run_soak.py WIN-VM --minutes 1
 
 # Different printer/share/rows
-.venv/bin/python contrib/windows/soak/run_soak.py W11-Seamless \
+.venv/bin/python contrib/windows/soak/run_soak.py WIN-VM \
   --minutes 18 --rows 20000 --printer "CUPS PDF" --share-drive Z:
 ```
 
@@ -116,19 +116,18 @@ Each run creates a unique directory `Z:\soak-<stamp>` and records
 
 ## Reference run (2026-11-19)
 
-`W11-Seamless` on Fedora 45, FreeRDP 3.33.1, AlmaLinux/Host QEMU 11.1:
+`WIN-VM` on Fedora 45, FreeRDP 3.33.1, QEMU 11.1:
 
 - 18.3 minutes, 27 iterations;
 - 20,000-row Excel workbook, 91 Word pages;
-- 9 print jobs, verified as PDFs on `DEV-Fedora-45`;
+- 9 print jobs, verified as PDFs on the Fedora test host;
 - Edge animation, clipboard round-trips and xlsx/docx saves to the VirtioFS
   `Downloads` share;
 - occasional Word `RPC_E_CALL_REJECTED` retries, no lost iteration;
 - RAIL supervisor stayed connected for the full run.
 
-See [`docs/WINDOWS-SEAMLESS.md`](../../../docs/WINDOWS-SEAMLESS.md) and
-[`docs/design/windows-seamless-overview.md`](../../../docs/design/windows-seamless-overview.md)
-for the current support and limitation notes.
+See [`docs/WINDOWS-SEAMLESS.md`](../../../docs/WINDOWS-SEAMLESS.md) for the
+current support and limitation notes.
 
 ## Limitations
 

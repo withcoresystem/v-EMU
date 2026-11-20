@@ -1,8 +1,8 @@
 # vEMU desktop image blueprints
 
-Native `image-builder` blueprints for the vEMU 0.2.0 desktop qcow2 and
+Native `image-builder` blueprints for the vEMU 0.3.0 desktop qcow2 and
 installer ISO paths. The full workflow, branding and firstboot guide is
-[`BUILDER.md`](../BUILDER.md).
+[`docs/BUILDER.md`](../docs/BUILDER.md).
 
 These are **starting points**, not fixed policies. Edit, delete or uncomment
 any block. vEMU does not invent a custom blueprint schema; the files are plain
@@ -52,7 +52,7 @@ The ISO wizard adds two optional layers on top of the blueprint:
   `VEMU-FBOOT` USB stick or an HTTP(S) URL.
 
 Detailed rules, payload contract and the verification checklist are in
-[`docs/design/iso-branding.md`](../docs/design/iso-branding.md).
+[`docs/BUILDER-BRANDING.md`](../docs/BUILDER-BRANDING.md).
 
 ## Validation status
 

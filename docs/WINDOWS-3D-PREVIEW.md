@@ -164,26 +164,26 @@ printf '{"enabled": true}\n' > ~/.config/vemu/experimental.json
 
 ```bash
 # Read-only: state, checkpoint, console, host checks, guest adapter.
-vemu experimental 3d status W11
+vemu experimental 3d status WIN-VM
 
 # Show the planned XML and host changes without touching anything.
-vemu experimental 3d enable W11 --username ProUser --dry-run
+vemu experimental 3d enable WIN-VM --username WinUser --dry-run
 
 # Convert one VM. The default is interactive.
-vemu experimental 3d enable W11 --username ProUser
+vemu experimental 3d enable WIN-VM --username WinUser
 
 # Automation: no prompt; also allows the host-wide sandbox change.
-vemu experimental 3d enable W11 --username ProUser --yes \
+vemu experimental 3d enable WIN-VM --username WinUser --yes \
   --accept-host-security-change
 
 # Keep a failed conversion for debugging instead of auto-reverting.
-vemu experimental 3d enable W11 --username ProUser --keep-broken
+vemu experimental 3d enable WIN-VM --username WinUser --keep-broken
 
 # Restore the disk checkpoint, the original XML and qemu.conf backup.
-vemu experimental 3d revert W11
+vemu experimental 3d revert WIN-VM
 
 # Recover a latched VgpuBootGuard (Code 37) without reverting.
-vemu experimental 3d repair W11
+vemu experimental 3d repair WIN-VM
 
 # Restore qemu.conf after all enabled 3D VMs are gone (host-wide).
 vemu experimental 3d restore-host
@@ -269,11 +269,11 @@ deleting the VM, while it still exists and can be shut down.
 ### What the state looks like
 
 ```bash
-vemu experimental 3d status W11
+vemu experimental 3d status WIN-VM
 ```
 
 ```text
-Experimental 3D: W11
+Experimental 3D: WIN-VM
   enabled:    yes
   status:     enabled
   release:    v1.0.26313.18562
@@ -347,7 +347,7 @@ can be black even though the driver version looks correct. This is the known
 The simplest recovery is the helper, with the VM running:
 
 ```bash
-vemu experimental 3d repair W11
+vemu experimental 3d repair WIN-VM
 ```
 
 It resets the guard and restarts the display device without touching the disk

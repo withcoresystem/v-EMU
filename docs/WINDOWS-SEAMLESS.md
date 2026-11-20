@@ -1,4 +1,4 @@
-# Windows seamless mode — user guide (0.3.0 preview)
+# Windows seamless mode — user guide
 
 Seamless mode publishes selected programs from a Windows VM as ordinary Linux
 desktop windows over one FreeRDP RAIL connection. v-EMU prepares the Windows
@@ -6,7 +6,7 @@ guest, keeps one supervisor connection and creates Linux shortcuts; Windows
 itself continues to own licensing, updates, UAC and application installs.
 
 This guide covers the Windows-only **Seamless Mode** menu in the v-EMU UI and
-the equivalent CLI commands. It is a preview for 0.3.0 development.
+the equivalent CLI commands. It is available in the 0.3.0 release.
 
 ## 1. Before you start
 
@@ -273,12 +273,12 @@ vemu seamless video DOMAIN --model qxl
   so a leftover pointer grab cannot trap host clicks. The Windows session is
   kept.
 
-## 8. Core validation status
+## 8. Validation status
 
-The current preview has been exercised on `W11-Seamless` with:
+The 0.3.0 flow has been exercised with:
 
 - bidirectional text clipboard between host and guest;
-- an IPP printer on a Linux DEV VM backed by CUPS PDF;
+- an IPP printer on a Linux test VM backed by CUPS PDF;
 - VirtioFS file sharing with the host;
 - USB passthrough into the Windows guest;
 - audio output (occasional slight stutter accepted);
@@ -287,7 +287,7 @@ The current preview has been exercised on `W11-Seamless` with:
   the full run with no transport disconnect.
 - an 18-minute mixed soak (2026-11-19): 27 iterations, a 20,000-row Excel
   workbook, 91 Word pages from repeated Excel→Word paste, 9 CUPS PDF print
-  jobs (PDFs verified on `DEV-Fedora-45`), an Edge animation page, clipboard
+  jobs (PDFs verified on the Fedora test host), an Edge animation page, clipboard
   round-trips, and xlsx/docx saves to the VirtioFS Downloads share (`Z:`).
   Word RPC rejections were retried; the supervisor stayed connected.
   Reproduce it with [`contrib/windows/soak/README.md`](../contrib/windows/soak/README.md).

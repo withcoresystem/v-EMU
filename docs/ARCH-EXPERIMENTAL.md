@@ -94,7 +94,7 @@ Arch-based release.
   cloud-init and a static address, booted, reached SSH, exposed nested
   `/dev/kvm`, survived a reboot, snapshotted/reverted, and was deleted with its
   storage.
-- Windows: `W11-26H2-base` was copied from a Fedora host, imported as a
+- Windows: a Windows 11 26H2 template was copied from a Fedora host, imported as a
   Windows template, cloned with OOBE, prepared for seamless mode through the
   daemon, and tested with a Notepad RAIL window. Pause removed shortcuts and
   kept the guest; remove restored the pre-seamless checkpoint and left the VM

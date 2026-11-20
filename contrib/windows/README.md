@@ -13,10 +13,10 @@ so the product path does not fork the profile data.
 
 The script is inspired by common VDI optimization practice, including the
 Omnissa Horizon OS Optimization Tool. No Omnissa code or template is bundled;
-the profiles were written from the functional settings and reviewed in
-[`docs/design/windows-guest-optimization.md`](../../docs/design/windows-guest-optimization.md).
-The module/overlay plan is in
-[`docs/design/windows-guest-architecture.md`](../../docs/design/windows-guest-architecture.md).
+the profiles were written from the functional settings and are maintained in
+this directory. See [`docs/MANUAL.md`](../../docs/MANUAL.md) and
+[`docs/WINDOWS-SEAMLESS.md`](../../docs/WINDOWS-SEAMLESS.md) for the supported
+product paths.
 
 ## Requirements
 
