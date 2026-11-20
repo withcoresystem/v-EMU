@@ -3,6 +3,8 @@
 **A local-first virtualization lab for Linux — templates, linked clones and
 declarative labs on the KVM stack you already trust.**
 
+![v-EMU main window](docs/images/main-window.webp)
+
 v-EMU is a desktop application for repeatable, self-contained labs on one Linux
 host. It drives QEMU/KVM and libvirt directly: no second hypervisor, no web
 control plane, no cluster to babysit. Templates, storage, networks, consoles
