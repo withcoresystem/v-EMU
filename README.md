@@ -163,6 +163,25 @@ vemu ui
 Create lab storage and a NAT network from the first-run wizard, or from
 **Storage** and **Networks**. Then use **Virtual machines → New VM**.
 
+## Roadmap
+
+The roadmap is directional, not a release promise.
+
+### 0.5.0 — planned focus
+
+- **Bug fixes** — triage 0.4.x regressions and user-reported issues on Fedora
+  45 and Alma/RHEL-family 10.3, prioritizing VM lifecycle, console, storage,
+  networking and seamless recovery.
+- **UI/UX improvements** — cleaner everyday workflows, error and empty states,
+  dialog consistency, keyboard navigation and accessibility; no new VM, guest
+  or host features.
+- **CLI autocomplete** — shell completion for the `vemu` command tree,
+  including domains, storage roles, networks and common flags, starting with
+  bash and zsh.
+
+0.5.0 does not re-open the removed host families; those users stay on the 0.3.1
+broad release.
+
 ## 0.4.0 — host-support narrowing
 
 - Fedora 45 and Alma/RHEL-family 10.3 are the only supported hosts.
