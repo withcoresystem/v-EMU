@@ -443,6 +443,12 @@ enable_ip_forward() {
 
 PRECHECK_ERRORS=0
 PRECHECK_WARNINGS=0
+PRECHECK_RED=""
+PRECHECK_RESET=""
+if [[ ( -t 1 || -t 2 ) && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    PRECHECK_RED=$'\033[1;31m'
+    PRECHECK_RESET=$'\033[0m'
+fi
 
 precheck_ok() {
     printf '  [ ok ] %s\n' "$1"
@@ -454,7 +460,14 @@ precheck_warn() {
 }
 
 precheck_fail() {
-    printf '  [fail] %s\n' "$1" >&2
+    local message=$1
+    if [[ -n "$PRECHECK_RED" ]]; then
+        printf '  %s[fail]%s %s%s%s\n' \
+            "$PRECHECK_RED" "$PRECHECK_RESET" \
+            "$PRECHECK_RED" "$message" "$PRECHECK_RESET" >&2
+    else
+        printf '  [fail] %s\n' "$message" >&2
+    fi
     PRECHECK_ERRORS=$((PRECHECK_ERRORS + 1))
 }
 
@@ -577,7 +590,7 @@ precheck_host() {
     local python_version=""
     PRECHECK_ERRORS=0
     PRECHECK_WARNINGS=0
-
+    
     echo "Prechecking host tools for v-EMU..."
     python_version=$(python_version_string "$PYTHON")
     if check_python_requirement "$PYTHON" "venv/UI" 2>/dev/null; then
@@ -703,7 +716,13 @@ precheck_host() {
     fi
 
     if (( PRECHECK_ERRORS > 0 )); then
-        echo "Precheck failed with $PRECHECK_ERRORS error(s); fix them before continuing." >&2
+        echo >&2
+        if [[ -n "$PRECHECK_RED" ]]; then
+            printf '%sPrecheck failed with %d error(s); fix the [fail] line(s) above before continuing.%s\n' \
+                "$PRECHECK_RED" "$PRECHECK_ERRORS" "$PRECHECK_RESET" >&2
+        else
+            echo "Precheck failed with $PRECHECK_ERRORS error(s); fix the [fail] line(s) above before continuing." >&2
+        fi
         exit 1
     fi
     if (( PRECHECK_WARNINGS > 0 )); then
