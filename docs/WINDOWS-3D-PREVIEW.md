@@ -1,6 +1,6 @@
 # Windows 3D (experimental, CLI only)
 
-> **Status: experimental and unsupported.** 0.3.0 ships one hidden command
+> **Status: experimental and unsupported.** 0.4.0 ships one hidden command
 > group, `vemu experimental 3d`, behind the **Experimental features** toggle in
 > Settings. There is no 3D page and no 3D wizard in the desktop app. The
 > feature can be removed without affecting normal VMs.
@@ -249,7 +249,7 @@ according to the delete mode:
 - **Host security state is not restored automatically.** If the helper changed
   `/etc/libvirt/qemu.conf` (`seccomp_sandbox = 0`), the delete result reports
   the backup path and leaves the host setting in place. This is intentional for
-  the 0.3.0 experiment.
+  the 0.4.0 experiment.
 
 After all enabled 3D VMs are reverted/deleted and every VM is shut down, use
 **Doctor → Restore host security…** or:

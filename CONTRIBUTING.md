@@ -23,7 +23,7 @@ Check:
 - the latest `main` or latest release;
 - existing issues for the same problem.
 
-Include distro/version, kernel, QEMU/libvirt versions, host security module,
+Include distro/version, kernel, QEMU/libvirt versions, SELinux mode,
 whether the VM is External/Partial/Full, and the exact operation that failed.
 Redact secrets, internal IPs and VM data.
 

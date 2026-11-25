@@ -191,13 +191,8 @@ fi
 
 # Ensure the services needed after the first reboot are enabled. setup.sh
 # normally does this, but verify explicitly so the finish screen is honest.
-units=(vemud.service)
-if [[ -f /etc/debian_version ]]; then
-    units+=(libvirtd.service)
-else
-    units+=(virtqemud.service virtnetworkd.service virtstoraged.service
-            virtsecretd.service virtnodedevd.service)
-fi
+units=(vemud.service virtqemud.service virtnetworkd.service
+       virtstoraged.service virtsecretd.service virtnodedevd.service)
 for unit in virtlogd.socket virtlockd.socket; do
     if systemctl list-unit-files "$unit" 2>/dev/null | grep -q "$unit"; then
         units+=("$unit")

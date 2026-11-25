@@ -98,8 +98,8 @@ isos/       installer and driver images
 - Linked clones create qcow2 overlays; template bases are never copied.
 - Deletion only removes files referenced by v-EMU metadata. Unreferenced files
   are handled by Storage → Clean garbage / `vemu gc`.
-- Ownership, mode, SELinux labels and AppArmor paths are applied through the
-  daemon; `Storage → Fix labels and access` can repair them.
+- Ownership, mode and SELinux labels are applied through the daemon;
+  `Storage → Fix labels and access` can repair them.
 - Registry: `/etc/vemu/storage.json`. Runtime data: `/var/lib/vemu/`.
 
 ## 5. Networking

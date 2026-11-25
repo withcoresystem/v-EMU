@@ -344,9 +344,7 @@ class ImageBuilderPage(QWidget):
         host = self.adapter.host_status()
         self.host_text.setText(host.summary)
         self.host_text.setToolTip(host.detail)
-        if not host.supported:
-            color = self._tokens.danger
-        elif host.ready:
+        if host.ready:
             color = self._tokens.success
         else:
             color = self._tokens.warning
@@ -355,17 +353,9 @@ class ImageBuilderPage(QWidget):
         self.new_iso_button.setEnabled(host.ready)
         self.catalog_button.setEnabled(host.ready)
         self.packages_button.setEnabled(host.ready)
-        # Recheck only helps when the host family is supported but tools are
-        # missing. On Debian/openSUSE/Arch it can never enable Image Builder.
-        self.recheck_button.setEnabled(host.supported)
-        self.import_button.setEnabled(host.supported)
-        if not host.supported:
-            self.host_notice.setText(
-                host.detail
-                or "Image Builder only supports Fedora and RHEL-family hosts."
-            )
-            self.host_notice.show()
-        elif not host.ready:
+        self.recheck_button.setEnabled(True)
+        self.import_button.setEnabled(True)
+        if not host.ready:
             self.host_notice.setText(
                 f"{host.detail} New builds are disabled until the host tools "
                 "are installed.".strip()
@@ -556,12 +546,6 @@ class ImageBuilderPage(QWidget):
     # ------------------------------------------------------------- actions
 
     def _import_blueprint(self) -> None:
-        host = self.adapter.host_status()
-        if not host.supported:
-            QMessageBox.information(
-                self, "Image Builder unavailable", host.detail
-            )
-            return
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Import blueprint",
@@ -1001,9 +985,7 @@ class ImageBuilderPage(QWidget):
         self.dark = dark
         self._tokens = DARK if dark else LIGHT
         host = self.adapter.host_status()
-        if not host.supported:
-            color = self._tokens.danger
-        elif host.ready:
+        if host.ready:
             color = self._tokens.success
         else:
             color = self._tokens.warning

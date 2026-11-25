@@ -349,10 +349,9 @@ so you can detach it; starting a VM removes missing USB entries and shows a
 warning instead of blocking the start.
 
 **External TigerVNC:** **Settings → Console** can switch full console windows
-from embedded noVNC to TigerVNC. Install `tigervnc` (Fedora/RHEL/openSUSE) or
-`tigervnc-viewer` (Debian/Ubuntu); the option stays disabled when `vncviewer`
-is missing. External mode has no vEMU shortcuts or clipboard bridge: use the
-TigerVNC menu (`Ctrl+Alt+M`) and VirtioFS for files. The mini console preview
+from embedded noVNC to TigerVNC. Install `tigervnc` with dnf; the option stays
+disabled when `vncviewer` is missing. External mode has no vEMU shortcuts or
+clipboard bridge: use the TigerVNC menu (`Ctrl+Alt+M`) and VirtioFS for files. The mini console preview
 stays embedded. Existing windows keep their mode until closed; new windows use
 the new mode. `vemu console <vm> --open` also launches TigerVNC.
 

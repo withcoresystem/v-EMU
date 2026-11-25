@@ -2867,22 +2867,21 @@ class UiTests(unittest.TestCase):
         finally:
             page.close()
 
-    def test_doctor_page_apparmor_hides_selinux_repair(self) -> None:
+    def test_doctor_page_selinux_disabled_hides_repair(self) -> None:
         from vemu.ui.doctor_page import DoctorPage
 
         payload = {
             "ok": True,
             "security": {
-                "active": "apparmor",
+                "active": "none",
                 "selinux": {"mode": "Disabled", "active": False},
-                "apparmor": {"active": True, "profiles": 17},
             },
             "checks": [
                 {
-                    "check": "AppArmor",
+                    "check": "SELinux",
                     "ok": True,
                     "level": "ok",
-                    "detail": "enabled (17 profiles)",
+                    "detail": "Disabled",
                 },
             ],
         }
@@ -2902,8 +2901,7 @@ class UiTests(unittest.TestCase):
             page.refresh()
             self.assertTrue(page.selinux_button.isHidden())
             self.assertFalse(page.selinux_button.isEnabled())
-            self.assertIn("AppArmor", page.security_label.text())
-            self.assertIn("17", page.security_label.text())
+            self.assertIn("SELinux Disabled", page.security_label.text())
         finally:
             page.close()
 
@@ -2915,7 +2913,6 @@ class UiTests(unittest.TestCase):
             "security": {
                 "active": "selinux",
                 "selinux": {"mode": "Enforcing", "active": True},
-                "apparmor": {"active": False, "profiles": None},
             },
             "checks": [
                 {

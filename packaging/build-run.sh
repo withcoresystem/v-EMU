@@ -6,7 +6,7 @@
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-VERSION=${1:-$(cd "$ROOT" && python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null || echo 0.3.1)}
+VERSION=${1:-$(cd "$ROOT" && python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null || echo 0.4.0)}
 OUT_DIR=${2:-"$ROOT/dist"}
 OUT="$OUT_DIR/vemu-${VERSION}-x86_64.run"
 
@@ -33,10 +33,9 @@ cp "$ROOT/README.md" "$ROOT/LICENSE" "$ROOT/NOTICE" \
     "$ROOT/CREDITS.md" "$TMP/vEMU/"
 cp "$ROOT/docs/MANUAL.md" "$ROOT/docs/BUILDER.md" \
     "$ROOT/docs/GRAPHICS.md" "$ROOT/docs/USER-GUIDE.md" \
-    "$ROOT/docs/ARCHITECTURE.md" "$ROOT/docs/ARCH-EXPERIMENTAL.md" \
-    "$ROOT/docs/BUILDER-BRANDING.md" "$ROOT/docs/WINDOWS-SEAMLESS.md" \
-    "$ROOT/docs/WINDOWS-3D-PREVIEW.md" "$ROOT/docs/RELEASING.md" \
-    "$TMP/vEMU/docs/"
+    "$ROOT/docs/ARCHITECTURE.md" "$ROOT/docs/BUILDER-BRANDING.md" \
+    "$ROOT/docs/WINDOWS-SEAMLESS.md" "$ROOT/docs/WINDOWS-3D-PREVIEW.md" \
+    "$ROOT/docs/RELEASING.md" "$TMP/vEMU/docs/"
 cp "$ROOT/docs/images/"* "$TMP/vEMU/docs/images/"
 mkdir -p "$TMP/vEMU/docs/release-notes"
 cp "$ROOT/docs/release-notes/"*.md \

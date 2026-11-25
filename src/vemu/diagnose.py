@@ -73,32 +73,11 @@ def _active_lsms() -> list[str]:
     return [item.strip() for item in text.split(",") if item.strip()]
 
 
-def _apparmor_enabled() -> bool:
-    try:
-        value = Path(
-            "/sys/module/apparmor/parameters/enabled"
-        ).read_text(encoding="utf-8").strip().lower()
-    except OSError:
-        return False
-    return value in {"y", "1", "yes"}
-
-
-def _apparmor_profiles() -> int | None:
-    try:
-        text = Path(
-            "/sys/kernel/security/apparmor/profiles"
-        ).read_text(encoding="utf-8")
-    except OSError:
-        return None
-    return sum(1 for line in text.splitlines() if line.strip())
-
-
 def _security_status() -> dict[str, Any]:
-    """Describe the LSM that is actually active on this host.
+    """Describe SELinux on the host.
 
-    Debian uses AppArmor by default; Fedora/RHEL use SELinux.  Reporting a
-    disabled SELinux row on Debian is misleading, so the Doctor and UI use
-    this payload to adapt instead of assuming SELinux everywhere.
+    Fedora and RHEL-family hosts use SELinux. AppArmor was only needed for the
+    removed Debian/Ubuntu host path, so it is no longer probed.
     """
     lsms = _active_lsms()
     try:
@@ -109,25 +88,12 @@ def _security_status() -> dict[str, Any]:
         selinux_mode in {"Enforcing", "Permissive"}
         and ("selinux" in lsms or not lsms)
     )
-    apparmor_active = "apparmor" in lsms or (
-        not lsms and _apparmor_enabled()
-    )
-    if selinux_active:
-        active = "selinux"
-    elif apparmor_active:
-        active = "apparmor"
-    else:
-        active = "none"
     return {
-        "active": active,
+        "active": "selinux" if selinux_active else "none",
         "lsm": lsms,
         "selinux": {
             "mode": selinux_mode,
             "active": selinux_active,
-        },
-        "apparmor": {
-            "active": apparmor_active,
-            "profiles": _apparmor_profiles() if apparmor_active else None,
         },
     }
 
@@ -541,42 +507,15 @@ def run_checks(uri: str = "qemu:///system", *, config: str | None = None) -> dic
         )
 
     security = _security_status()
-    if security["selinux"]["active"]:
-        selinux = security["selinux"]["mode"]
-        checks.append(
-            _check(
-                "SELinux",
-                selinux in {"Enforcing", "Permissive"},
-                selinux,
-                required=False,
-            )
+    selinux_mode = security["selinux"]["mode"]
+    checks.append(
+        _check(
+            "SELinux",
+            security["selinux"]["active"] or selinux_mode == "Disabled",
+            selinux_mode,
+            required=False,
         )
-    elif security["apparmor"]["active"]:
-        profiles = security["apparmor"]["profiles"]
-        detail = "enabled"
-        if profiles is not None:
-            detail = f"enabled ({profiles} profiles)"
-        checks.append(
-            _check("AppArmor", True, detail, required=False)
-        )
-    elif security["selinux"]["mode"] != "not installed":
-        checks.append(
-            _check(
-                "SELinux",
-                security["selinux"]["mode"] == "Disabled",
-                security["selinux"]["mode"],
-                required=False,
-            )
-        )
-    else:
-        checks.append(
-            _check(
-                "Security",
-                False,
-                "no AppArmor or SELinux LSM is active",
-                required=False,
-            )
-        )
+    )
 
     experimental3d = _experimental3d_status()
     checks.append(experimental3d["check"])

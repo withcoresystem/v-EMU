@@ -338,28 +338,14 @@ class DoctorPage(QWidget):
     def _security_summary(self) -> str:
         security = self.payload.get("security")
         if isinstance(security, dict):
-            active = str(security.get("active", ""))
             selinux = security.get("selinux") or {}
-            if active == "selinux":
-                mode = str(selinux.get("mode", "")).strip()
-                return f"Security: SELinux {mode}".rstrip()
-            if active == "apparmor":
-                apparmor = security.get("apparmor") or {}
-                profiles = apparmor.get("profiles")
-                text = "Security: AppArmor enabled"
-                if profiles is not None:
-                    text += f" ({profiles} profiles)"
-                return text
-            if active == "none":
-                return "Security: no AppArmor or SELinux LSM active"
+            mode = str(selinux.get("mode", "")).strip()
+            if mode:
+                return f"Security: SELinux {mode}"
         detail = self._selinux_detail()
-        if detail in {"Enforcing", "Permissive"}:
+        if detail:
             return f"Security: SELinux {detail}"
-        for item in self.payload.get("checks", []):
-            if item.get("check") == "AppArmor":
-                value = str(item.get("detail", "")).strip()
-                return f"Security: AppArmor {value}".strip()
-        return "Security: unknown"
+        return "Security: SELinux unknown"
 
     def _update_security_controls(self) -> None:
         active = self._selinux_active()

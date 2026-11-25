@@ -41,14 +41,6 @@ REQUIRED_TOOLS = (
     "rpm",
     "dnf",
 )
-HOST_FAMILIES = (
-    "fedora",
-    "rhel",
-    "centos",
-    "almalinux",
-    "rocky",
-    "oracle",
-)
 LIBEXEC_TOOLS = {
     "osbuild-depsolve-dnf": (
         "/usr/libexec/osbuild-depsolve-dnf",
@@ -79,14 +71,6 @@ def _host_name() -> str:
     return info.get("PRETTY_NAME") or info.get("NAME") or "Linux host"
 
 
-def _host_supported() -> bool:
-    info = _os_release()
-    family = " ".join(
-        (info.get("ID", ""), info.get("ID_LIKE", ""))
-    ).lower()
-    return any(name in family for name in HOST_FAMILIES)
-
-
 def _terminate_process(process: subprocess.Popen, timeout: float = 5.0) -> None:
     """Stop a process started in its own session, then reap it."""
 
@@ -113,7 +97,6 @@ class HostStatus:
     ready: bool
     summary: str
     detail: str = ""
-    supported: bool = True
 
 
 @dataclass(frozen=True)
@@ -528,15 +511,6 @@ class RealImageBuilderAdapter(FakeImageBuilderAdapter):
 
     def host_status(self) -> HostStatus:
         host = _host_name()
-        if not _host_supported():
-            return HostStatus(
-                ready=False,
-                supported=False,
-                summary=f"{host} · unsupported host",
-                detail=(
-                    "Image Builder only supports Fedora and RHEL-family hosts."
-                ),
-            )
         missing = [
             tool for tool in REQUIRED_TOOLS if _tool_path(tool) is None
         ]
@@ -560,10 +534,6 @@ class RealImageBuilderAdapter(FakeImageBuilderAdapter):
         """List image-builder's buildable distros, arches and image types."""
         if self._catalog_cache is not None and not refresh:
             return [dict(entry) for entry in self._catalog_cache]
-        if not _host_supported():
-            raise ValidationError(
-                "Image Builder only supports Fedora and RHEL-family hosts."
-            )
         executable = shutil.which("image-builder")
         if executable is None:
             raise ValidationError(
@@ -1152,12 +1122,7 @@ class RealImageBuilderAdapter(FakeImageBuilderAdapter):
 
 
 def default_adapter() -> RealImageBuilderAdapter:
-    """Use the real adapter; the page gates unsupported/missing hosts.
-
-    The fake adapter is only for tests and explicit preview use, so a
-    Debian/openSUSE host cannot accidentally enter a preview build path.
-    """
-
+    """Use the real adapter; the page gates missing host tools."""
     return RealImageBuilderAdapter(metadata=ImageMetadataStore())
 
 

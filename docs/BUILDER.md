@@ -8,10 +8,9 @@ For normal vEMU use, start with [`MANUAL.md`](MANUAL.md) or the in-app guide
 [`USER-GUIDE.md`](USER-GUIDE.md). This file goes deeper and is meant
 for people who create or maintain images.
 
-> **Status:** Image Builder is available since 0.2.0 and remains part of the
-> 0.3.0 broad release. It orchestrates the upstream `image-builder` CLI on
-> Fedora/RHEL-family hosts. Debian, Ubuntu, openSUSE and Arch-family hosts are
-> not supported as build hosts.
+> **Status:** Image Builder orchestrates the upstream `image-builder` CLI on
+> the Fedora 45 and Alma/RHEL-family 10.3 hosts. Other host families use the
+> 0.3.1 broad release on `maint/0.3`.
 
 ## 1. What Image Builder is
 
@@ -29,12 +28,16 @@ for people who create or maintain images.
 
 | Host | Image Builder |
 |---|---|
-| Fedora | Supported |
-| RHEL, AlmaLinux, Rocky, CentOS, Oracle Linux | Supported, with repository/subscription prerequisites |
-| Debian, Ubuntu, openSUSE, SLE, Arch/CachyOS/Omarchy | Build page disabled; import a prebuilt image instead |
+| Fedora 45 | Supported |
+| AlmaLinux/RHEL 10.3 (and compatible Rocky/CentOS/Oracle 10) | Supported, with repository/subscription prerequisites |
 
 Targets come from `image-builder list` on the host. The catalog is cached
 locally; **Refresh** asks the installed `image-builder` again.
+
+On 2026-11-25, RHEL 10.3 with `image-builder` 79.0.0 and `osbuild` 191 passed
+the complete `rhel-10.3` GNOME qcow2 flow: the catalog entry was present, the
+subscription-aware preflight resolved 1241 packages, and the build produced a
+1.9 GiB qcow2 in 26m47s.
 
 ### Main prerequisites
 
@@ -107,7 +110,7 @@ image.
 
 Preflight is read-only and runs `image-builder manifest` as your user. It checks:
 
-- host family and required tools;
+- required host tools;
 - blueprint syntax and package/group resolution;
 - repository reachability and missing packages;
 - output space and the managed `images` role;
@@ -182,7 +185,7 @@ Branding affects:
 
 It does **not** modify the base boot chain, shim/kernel signatures or Secure
 Boot behavior. Branding is supported on Fedora/RHEL-like Anaconda GTK ISOs,
-not Debian/openSUSE installers.
+not non-RHEL installers.
 
 ### 4.3 Firstboot layer
 

@@ -7,19 +7,15 @@ from vemu import diagnose
 
 
 class SecurityStatusTests(unittest.TestCase):
-    @mock.patch.object(diagnose, "_apparmor_profiles", return_value=42)
     @mock.patch.object(diagnose, "_selinux_mode", return_value="Disabled")
-    @mock.patch.object(
-        diagnose, "_active_lsms", return_value=["lockdown", "apparmor"]
-    )
-    def test_apparmor_is_primary_on_debian(self, *_mocks) -> None:
+    @mock.patch.object(diagnose, "_active_lsms", return_value=["lockdown"])
+    def test_selinux_disabled_is_reported(self, *_mocks) -> None:
         status = diagnose._security_status()
-        self.assertEqual(status["active"], "apparmor")
+        self.assertEqual(status["active"], "none")
         self.assertFalse(status["selinux"]["active"])
-        self.assertTrue(status["apparmor"]["active"])
-        self.assertEqual(status["apparmor"]["profiles"], 42)
+        self.assertEqual(status["selinux"]["mode"], "Disabled")
+        self.assertNotIn("apparmor", status)
 
-    @mock.patch.object(diagnose, "_apparmor_profiles", return_value=None)
     @mock.patch.object(diagnose, "_selinux_mode", return_value="Enforcing")
     @mock.patch.object(
         diagnose, "_active_lsms", return_value=["lockdown", "selinux"]
@@ -28,17 +24,15 @@ class SecurityStatusTests(unittest.TestCase):
         status = diagnose._security_status()
         self.assertEqual(status["active"], "selinux")
         self.assertTrue(status["selinux"]["active"])
-        self.assertFalse(status["apparmor"]["active"])
+        self.assertNotIn("apparmor", status)
 
-    @mock.patch.object(diagnose, "_apparmor_enabled", return_value=False)
-    @mock.patch.object(diagnose, "_apparmor_profiles", return_value=None)
     @mock.patch.object(diagnose, "_selinux_mode", return_value="not installed")
     @mock.patch.object(diagnose, "_active_lsms", return_value=[])
     def test_no_lsm(self, *_mocks) -> None:
         status = diagnose._security_status()
         self.assertEqual(status["active"], "none")
         self.assertFalse(status["selinux"]["active"])
-        self.assertFalse(status["apparmor"]["active"])
+        self.assertNotIn("apparmor", status)
 
 
 class IpForwardCheckTests(unittest.TestCase):

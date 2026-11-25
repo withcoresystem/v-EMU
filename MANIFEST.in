@@ -1,6 +1,5 @@
 include README.md
 include setup.sh
-include contrib/setup-arch.sh
 recursive-include contrib/windows *
 recursive-include src/vemu/ui/web/novnc *
 recursive-include src/vemu/ui/assets *

@@ -1,6 +1,6 @@
 # v-EMU Manual
 
-Version 0.3.1.
+Version 0.4.0.
 
 > Lab-first desktop virtualization on QEMU/KVM: local, single-user, and built
 > around reusable templates, linked clones and declarative labs.
@@ -21,8 +21,8 @@ Version 0.3.1.
 - A Wayland desktop session for the UI (KDE Plasma, GNOME and COSMIC tested).
 - Free space for lab disks: at least 20 GiB plus the VM images you plan to use.
 - For Windows seamless mode: Windows 10/11 Pro/Enterprise, QXL or VGA video,
-  QEMU guest agent, OpenSSH Server and FreeRDP >= 3.26. Prefer the distribution
-  package; the Flatpak fallback is isolated and has known limitations.
+  QEMU guest agent, OpenSSH Server and FreeRDP >= 3.26. Use the distribution
+  package; AlmaLinux 9.9 uses the EL9 contrib build.
 
 ### Install from source
 
@@ -36,6 +36,9 @@ cd vEMU
 `--precheck` is read-only. `--standard` installs x86_64 host packages, v-EMU,
 `vemud`, the desktop entry and x64 firmware. `--full` additionally installs
 optional aarch64/riscv64 TCG packages where the distribution provides them.
+Fedora 45 ships those packages; AlmaLinux and RHEL 10.3 default repositories
+do not, so those hosts stay on `--standard` unless the packages are added
+separately.
 Release `.run` installers (`vemu-<version>-x86_64.run`) wrap the same logic;
 verify the adjacent `.sha256` before running one. The installer keeps the
 extracted source it runs from in `~/.local/share/vemu/source` (override with
@@ -55,21 +58,22 @@ After the first install, log out and back in so the new `vemu`, `libvirt` and
 
 ### Host support
 
-| Tier | Hosts |
+| Host | Status |
 |---|---|
-| Primary (full feature) | Fedora 45; AlmaLinux 10.3; RHEL 10.3 (`--standard` + GNOME UI; feature evidence from Fedora) |
-| Secondary (tested, lower priority) | Debian 13.x; Ubuntu/Kubuntu 26.04; openSUSE Leap 16.1; Arch/CachyOS/Omarchy via `contrib/setup-arch.sh` |
-| Edge / best effort | Debian 12; openSUSE Tumbleweed snapshot 20261028; Slowroll; newer Fedora pre-release builds; RHEL/Rocky/Alma 9 and older; SLES/SLED; unlisted distributions |
+| Fedora 45 | Primary, full feature; KDE Plasma, GNOME and COSMIC UI tested |
+| AlmaLinux 10.3 | Primary, full feature |
+| RHEL 10.3 | Primary, full feature |
+| AlmaLinux 9.9 | Optional EL9 installation-test path via `contrib/setup-el9.sh`; not a primary tier |
 
-Fedora/RHEL-family is the only full-feature tier and the only Image Builder
-host family. Debian 13, Ubuntu 26.04, Leap 16.1 and Arch-family are tested at a
-lower tier; their package splits, FreeRDP client version, Secure Boot/OVMF and
-rolling-release changes can need host-specific workarounds. Arch/CachyOS/Omarchy
-have no Image Builder.
+Fedora/RHEL-family is the only supported host family. Debian/Ubuntu,
+openSUSE/SUSE and Arch hosts are no longer supported in 0.4.0; use the 0.3.1
+broad release on the public `maint/0.3` branch instead.
+
+AlmaLinux 9.9 is RHEL-family but late in its lifecycle. Use the EL9 helper and
+read [`ALMA-9.9.md`](ALMA-9.9.md); it installs Python 3.11 and can build FreeRDP
+for seamless testing. The detailed matrix is in [`SUPPORT.md`](SUPPORT.md).
 
 Host support only covers installing/running v-EMU; guest OS support is wider.
-Arch-family notes and limitations: [`ARCH-EXPERIMENTAL.md`](ARCH-EXPERIMENTAL.md).
-The summary matrix is in [`../README.md#host-support`](../README.md#host-support).
 The host must provide KVM. Cross-architecture TCG is optional and slow.
 
 ### First checks
@@ -139,7 +143,7 @@ setup.sh ──► first-run wizard ──► storage + NAT ──► New VM ─
 |---|---|
 | Check KVM | `./setup.sh --precheck` |
 | Install x86_64 host | `./setup.sh --standard` |
-| Add ARM/RISC-V TCG | `./setup.sh --full` |
+| Add ARM/RISC-V TCG | `./setup.sh --full` (Fedora 45 packages; Alma/RHEL need extra repos) |
 | Open the app | `vemu ui` or the desktop entry |
 | First run | create a `labs` storage role and a NAT network |
 | First VM | **Virtual machines → New VM** |
@@ -487,9 +491,8 @@ Prerequisites:
 
 - Windows 10/11 Pro/Enterprise with a local profile and a password.
 - QXL or VGA video, QEMU guest agent and OpenSSH Server.
-- FreeRDP >= 3.26 on the host. Fedora/RHEL-family and the tested secondary
-  hosts use the distribution package where available; Debian 13's older client
-  needs the documented Flatpak fallback.
+- FreeRDP >= 3.26 on the host. Fedora/RHEL-family 10.3 use the distribution
+  package; AlmaLinux 9.9 needs `contrib/setup-freerdp-el9.sh`.
 - For an imported sysprepped Windows template, use its OOBE answer USB and
   verify the displayed build before publishing apps.
 
@@ -566,11 +569,10 @@ see **Clipboard (host ↔ guest)** below for the guest requirements.
 USB passthrough and boot-to-firmware/BIOS menu are in the VM context menu.
 
 **External TigerVNC:** in **Settings → Console** you can switch full console
-windows from embedded noVNC to TigerVNC. Install `tigervnc` (Fedora/RHEL/
-openSUSE) or `tigervnc-viewer` (Debian/Ubuntu); the option stays disabled when
-`vncviewer` is missing. External mode has no vEMU toolbar shortcuts or
-clipboard bridge: use the TigerVNC menu (`Ctrl+Alt+M`) and VirtioFS for guest
-file exchange. The mini console preview always stays embedded. Existing
+windows from embedded noVNC to TigerVNC. Install `tigervnc` with dnf; the option
+stays disabled when `vncviewer` is missing. External mode has no vEMU toolbar
+shortcuts or clipboard bridge: use the TigerVNC menu (`Ctrl+Alt+M`) and VirtioFS
+for guest file exchange. The mini console preview always stays embedded. Existing
 windows keep their current mode until closed; new windows use the new mode.
 `vemu console <vm> --open` also launches TigerVNC.
 The native toolbar starts hidden; press `F9` or `Ctrl+Shift+T` to show it.

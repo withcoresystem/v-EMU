@@ -13,10 +13,12 @@ and lab definitions live in one place, with a CLI for the same operations.
 v-EMU is maintained by **Tran Trung Truc** at **CORESYSTEM VN** —
 [coresystem.vn](https://coresystem.vn).
 
-> **Status:** 0.3.1 patch release — the final broad host release. Fedora/RHEL-family
-> hosts are the primary, fully supported tier. Debian 13.x, Ubuntu 26.04,
-> openSUSE Leap 16.1 and Arch-based desktops are secondary/experimental tiers.
-> A host-only Fedora/RHEL-family maintenance tree (vEMU-RHEL) is next.
+> **Status:** 0.4.0 host-support narrowing release. Fedora 45 and
+> Alma/RHEL-family 10.3 are the only supported hosts; no new VM, guest,
+> console, seamless or 3D features are added. Debian/Ubuntu, openSUSE/SUSE and
+> Arch-family users should stay on the **0.3.1 broad release**, published on
+> the public `maint/0.3` branch and the `v0.3.1` tag. Do not upgrade those hosts
+> to 0.4.0.
 
 ## What v-EMU does
 
@@ -68,14 +70,14 @@ v-EMU is maintained by **Tran Trung Truc** at **CORESYSTEM VN** —
 - Blueprint import, package lookup, rootless preflight, build log and artifact
   handling.
 - Installer branding and optional first-boot payloads.
-- **Fedora/RHEL-family hosts only**; Debian, Ubuntu, openSUSE and Arch keep the
-  core features but not Image Builder.
+- **Fedora/RHEL-family 10.3 hosts only.** Other host families use the 0.3.1
+  broad release, which keeps the core features but not Image Builder.
 
 ### Operations and host security
 
 - Full CLI parity for VM, template, storage, network, snapshot and lab work.
 - Root `vemud` daemon on a local Unix socket; no telemetry or TCP listener.
-- Doctor checks for KVM, tools, firmware, storage, SELinux/AppArmor and USB.
+- Doctor checks for KVM, tools, firmware, storage, SELinux and USB.
 - VM delete cleans host shortcuts/icons, supervisor state and keyring entries.
 - Doctor reports experimental 3D host security and can restore `qemu.conf`.
 
@@ -89,18 +91,26 @@ is not a path for RDP, RemoteApp or seamless mode. See
 
 ## Host support
 
-| Tier | Hosts |
+| Host | Status |
 |---|---|
-| Primary — full feature | Fedora 45; AlmaLinux 10.3; RHEL 10.3 (`--standard` + GNOME UI, feature evidence from Fedora) |
-| Secondary — tested | Debian 13.x; Ubuntu/Kubuntu 26.04; openSUSE Leap 16.1; Arch/CachyOS/Omarchy via `contrib/setup-arch.sh` |
-| Edge / best effort | Debian 12; openSUSE Tumbleweed snapshot; Slowroll; newer Fedora pre-release builds; RHEL/Rocky/Alma 9 and older; SLES/SLED |
-| As-is | Kali, Debian 11 and older, and other unlisted distributions |
+| Fedora 45 | Primary, full feature; KDE Plasma, GNOME and COSMIC UI tested |
+| AlmaLinux 10.3 | Primary, full feature |
+| RHEL 10.3 | Primary, full feature |
+| AlmaLinux 9.9 | Optional EL9 installation-test path via `contrib/setup-el9.sh`; not a primary tier |
 
-Fedora/RHEL-family is the primary, fully tested tier and the only Image Builder
-host family. Secondary hosts are tested at a lower tier; package splits,
-FreeRDP versions, Secure Boot/OVMF combinations and rolling-release changes may
-need host-specific workarounds. The full matrix and caveats are in
-[`docs/MANUAL.md`](docs/MANUAL.md#host-support).
+Fedora/RHEL-family 10.3 is the only supported host family in 0.4.0. The
+Debian/Ubuntu, openSUSE/SUSE and Arch paths were removed from this tree.
+
+**Users of the removed host families must stay on 0.3.1.** The broad 0.3.1
+release remains available on the public [`maint/0.3`](https://github.com/withcoresystem/v-EMU/tree/maint/0.3)
+branch and the `v0.3.1` tag, including its Debian/Ubuntu, openSUSE/SUSE and
+Arch host support. Do not upgrade those hosts to 0.4.0; no further host fixes
+are planned there.
+
+Guest OS support in the VM wizard and templates is unchanged. AlmaLinux 9.9 is
+RHEL-family but late in its lifecycle; it is an optional installation-test path
+through `contrib/setup-el9.sh`, not a primary tier. The detailed policy is in
+[`docs/SUPPORT.md`](docs/SUPPORT.md).
 
 ## Requirements
 
@@ -125,19 +135,19 @@ cd vEMU
 ./setup.sh --full            # also aarch64/riscv64 TCG packages/firmware
 ```
 
-Run as your normal desktop user, not with `sudo`. After the first install,
-reboot or log out/in so group membership applies. On Arch/CachyOS/Omarchy use
-the separate experimental installer:
+Run as your normal desktop user, not with `sudo`. `--full` adds optional
+aarch64/riscv64 TCG packages where the distribution provides them. Fedora 45
+ships those packages; AlmaLinux and RHEL 10.3 default repositories do not, so
+those hosts stay on `--standard` unless the cross-architecture packages are
+added separately. After the first install, reboot or log out/in so group
+membership applies.
 
-```bash
-./contrib/setup-arch.sh --full
-```
-
-Or download `vemu-0.3.1-x86_64.run` from
-[GitHub Releases](https://github.com/withcoresystem/v-EMU/releases/latest),
-verify it with the adjacent `.sha256`, then run it. The `.run` uses the same
-setup logic and keeps its extracted source under `~/.local/share/vemu/source`;
-`--uninstall` removes it.
+Or download the matching `vemu-<version>-x86_64.run` from
+[GitHub Releases](https://github.com/withcoresystem/v-EMU/releases) when the
+tag is published, verify it with the adjacent `.sha256`, then run it. The
+`.run` uses the same setup logic and keeps its extracted source under
+`~/.local/share/vemu/source`; `--uninstall` removes it. For the broad 0.3.1
+release, use the `v0.3.1` release asset and the `maint/0.3` branch.
 
 Full install, first-run, adoption, support matrix and uninstall:
 [`docs/MANUAL.md`](docs/MANUAL.md).
@@ -153,6 +163,17 @@ vemu ui
 Create lab storage and a NAT network from the first-run wizard, or from
 **Storage** and **Networks**. Then use **Virtual machines → New VM**.
 
+## 0.4.0 — host-support narrowing
+
+- Fedora 45 and Alma/RHEL-family 10.3 are the only supported hosts.
+- Debian/Ubuntu, openSUSE/SUSE and Arch host paths, docs and tests are removed
+  from this tree.
+- `setup.sh` is a single dnf path; AlmaLinux 9.9 uses `contrib/setup-el9.sh`.
+- Image Builder follows the host scope; the separate host-family disable gate
+  and AppArmor host detection are removed.
+- No new VM, guest, console, seamless or 3D features.
+- The broad 0.3.1 release stays on `maint/0.3` for the removed host families.
+
 ## 0.3.1 patch
 
 - The **Delete VM** dialog is short and context-aware: it only warns when the
@@ -167,8 +188,6 @@ Create lab storage and a NAT network from the first-run wizard, or from
 - VM delete cleanup for shortcuts, host state and keyring entries.
 - Doctor host-security status and guarded 3D qemu.conf restore.
 - Experimental Windows 3D remains CLI-only and unsupported.
-- Fedora/RHEL-family becomes the primary host tier; the next tree,
-  vEMU-RHEL, narrows host support only.
 
 ## Documentation
 
@@ -181,8 +200,10 @@ Create lab storage and a NAT network from the first-run wizard, or from
 | [`docs/USER-GUIDE.md`](docs/USER-GUIDE.md) | Concise in-app guide |
 | [`docs/WINDOWS-SEAMLESS.md`](docs/WINDOWS-SEAMLESS.md) | Seamless prepare, program management, pause, remove and recovery |
 | [`docs/WINDOWS-3D-PREVIEW.md`](docs/WINDOWS-3D-PREVIEW.md) | Experimental Windows 3D: prerequisites, risks and rollback |
-| [`docs/ARCH-EXPERIMENTAL.md`](docs/ARCH-EXPERIMENTAL.md) | Arch/CachyOS/Omarchy experimental installer and validation |
+| [`docs/SUPPORT.md`](docs/SUPPORT.md) | Host matrix, support policy and removed host families |
+| [`docs/ALMA-9.9.md`](docs/ALMA-9.9.md) | Optional EL9 installation-test helper and FreeRDP source build |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | Public `.run` build, clean-host test and GitHub release process |
+| [`docs/release-notes/v0.4.0.md`](docs/release-notes/v0.4.0.md) | 0.4.0 host-support narrowing notes |
 | [`docs/release-notes/v0.3.1.md`](docs/release-notes/v0.3.1.md) | 0.3.1 patch notes |
 | [`docs/release-notes/v0.3.0.md`](docs/release-notes/v0.3.0.md) | 0.3.0 release notes and validation |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Issues, pull requests and scope |

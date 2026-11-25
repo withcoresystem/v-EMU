@@ -43,7 +43,7 @@ Out of scope for this project:
   report those upstream;
 - guest operating-system vulnerabilities;
 - attacks that already require root on the host;
-- misconfiguration of AppArmor/SELinux policy outside v-EMU's documented
+- misconfiguration of SELinux policy outside v-EMU's documented
   storage repair;
 - direct edits made with `virsh`, Cockpit or virt-manager that bypass v-EMU.
 
@@ -55,7 +55,7 @@ Out of scope for this project:
   `virsh`, Cockpit or virt-manager from changing the same domain.
 - Storage deletion is conservative. Only unreferenced files and orphan chains
   can be deleted through the UI.
-- v-EMU does not manage host firewalling, SELinux/AppArmor policy for arbitrary
+- v-EMU does not manage host firewalling, SELinux policy for arbitrary
   paths, or enterprise subscription repositories.
 - Lab defaults, including the documented Windows administrator password, are
   for disposable labs. Change them for any environment that matters.

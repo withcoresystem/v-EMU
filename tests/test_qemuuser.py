@@ -92,11 +92,11 @@ class QemuIdentityTests(unittest.TestCase):
             env=env or {},
         )
 
-    def test_debian_default_is_libvirt_qemu(self) -> None:
+    def test_default_is_qemu(self) -> None:
         identity = self._identity()
-        self.assertEqual(identity.user, "libvirt-qemu")
-        self.assertEqual(identity.group, "kvm")
-        self.assertEqual(identity.owner, "libvirt-qemu:kvm")
+        self.assertEqual(identity.user, "qemu")
+        self.assertEqual(identity.group, "qemu")
+        self.assertEqual(identity.owner, "qemu:qemu")
         self.assertEqual(identity.source, "auto")
 
     def test_fedora_default_is_qemu(self) -> None:
@@ -104,10 +104,6 @@ class QemuIdentityTests(unittest.TestCase):
         self.assertEqual(identity.user, "qemu")
         self.assertEqual(identity.group, "qemu")
 
-    def test_arch_default_is_libvirt_qemu(self) -> None:
-        identity = self._identity(release=self.arch_release)
-        self.assertEqual(identity.user, "libvirt-qemu")
-        self.assertEqual(identity.group, "libvirt-qemu")
 
     def test_environment_override_wins(self) -> None:
         identity = self._identity(
@@ -121,7 +117,7 @@ class QemuIdentityTests(unittest.TestCase):
 
     def test_environment_group_only_keeps_detected_user(self) -> None:
         identity = self._identity(env={"VEMU_QEMU_GROUP": "kvm"})
-        self.assertEqual(identity.user, "libvirt-qemu")
+        self.assertEqual(identity.user, "qemu")
         self.assertEqual(identity.group, "kvm")
 
     def test_qemu_conf_active_values_win_over_distro(self) -> None:
@@ -150,19 +146,9 @@ class QemuIdentityTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 self._identity(release=empty)
 
-    def test_distro_candidates_order(self) -> None:
-        self.assertEqual(
-            _distro_candidates(self.debian_release)[0],
-            ("libvirt-qemu", "kvm"),
-        )
-        self.assertEqual(
-            _distro_candidates(self.fedora_release)[0],
-            ("qemu", "qemu"),
-        )
-        self.assertEqual(
-            _distro_candidates(self.arch_release)[0],
-            ("libvirt-qemu", "libvirt-qemu"),
-        )
+    def test_distro_candidates_are_qemu(self) -> None:
+        self.assertEqual(_distro_candidates(self.fedora_release)[0], ("qemu", "qemu"))
+        self.assertEqual(_distro_candidates(self.debian_release)[0], ("qemu", "qemu"))
 
 
 if __name__ == "__main__":

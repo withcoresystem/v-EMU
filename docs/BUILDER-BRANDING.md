@@ -12,7 +12,8 @@ the defaults below.
 - Installer ISO only; qcow2 images are not branded.
 - Supported bases: Fedora and RHEL-family Anaconda GTK ISOs with Plymouth
   `two-step`.
-- Debian, Ubuntu and openSUSE are not Image Builder hosts in 0.2.0.
+- Only Fedora and RHEL-family 10.3 hosts are supported in 0.4.0; removed host
+  families use the 0.3.1 broad release on `maint/0.3`.
 - The base boot chain and Secure Boot signatures are never modified.
 
 ## Wizard fields

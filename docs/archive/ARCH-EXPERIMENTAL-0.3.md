@@ -1,5 +1,8 @@
 # Arch family — experimental host notes
 
+> **Historical, 0.3.x only.** Arch-family host support was removed in 0.4.0.
+> Use the broad 0.3.1 release on `maint/0.3` for these hosts.
+
 Status: **experimental / as-is**. Arch Linux, CachyOS and Arch-based desktops
 (including Omarchy) are **not** part of the official v-EMU host matrix. They
 receive no feature-parity or response-time promise.

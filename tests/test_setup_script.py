@@ -10,17 +10,23 @@ class SetupScriptTests(unittest.TestCase):
         self.root = Path(__file__).resolve().parents[1]
         self.script = self.root / "setup.sh"
 
-    def test_ubuntu_split_riscv_package_is_supported(self) -> None:
+    def test_setup_is_rhel_family_only(self) -> None:
         text = self.script.read_text(encoding="utf-8")
-        self.assertIn("pkg_available qemu-system-riscv", text)
+        self.assertIn("Fedora and RHEL-family", text)
+        self.assertIn("dnf install -y", text)
         self.assertIn("qemu-system-riscv", text)
-        for expected in (
-            "freerdp3-x11",
-            "python3-keyring",
-            "/var/lib/vemu/seamless",
-            "/var/lib/vemu/experimental3d",
+        for removed in (
+            "apt-get",
+            "zypper",
+            "pacman",
+            "dpkg-query",
+            "libvirt-qemu",
         ):
+            self.assertNotIn(removed, text)
+        for expected in ("/var/lib/vemu/seamless", "/var/lib/vemu/experimental3d"):
             self.assertIn(expected, text)
+
+    def test_setup_syntax(self) -> None:
         result = subprocess.run(
             ["bash", "-n", str(self.script)],
             capture_output=True,

@@ -681,19 +681,14 @@ class InstallerWindow(Gtk.Window):
         self._verify_services()
 
     def _verify_services(self) -> None:
-        units = ["vemud.service"]
-        if Path("/etc/debian_version").is_file():
-            units.append("libvirtd.service")
-        else:
-            units.extend(
-                [
-                    "virtqemud.service",
-                    "virtnetworkd.service",
-                    "virtstoraged.service",
-                    "virtsecretd.service",
-                    "virtnodedevd.service",
-                ]
-            )
+        units = [
+            "vemud.service",
+            "virtqemud.service",
+            "virtnetworkd.service",
+            "virtstoraged.service",
+            "virtsecretd.service",
+            "virtnodedevd.service",
+        ]
         failures = []
         for unit in units:
             enabled = subprocess.run(

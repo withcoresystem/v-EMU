@@ -330,8 +330,6 @@ class AdapterCatalogCacheTests(unittest.TestCase):
             )
             adapter = RealImageBuilderAdapter(metadata=store)
             with mock.patch(
-                "vemu.imagebuilder._host_supported", return_value=True
-            ), mock.patch(
                 "vemu.imagebuilder.shutil.which",
                 return_value="/usr/bin/image-builder",
             ), mock.patch.object(

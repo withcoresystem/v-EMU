@@ -75,8 +75,6 @@ class RealAdapterTests(unittest.TestCase):
             "vemu.imagebuilder._tool_path", side_effect=fake_tool
         ), mock.patch.object(
             self.adapter, "_version", return_value="89.0.0"
-        ), mock.patch(
-            "vemu.imagebuilder._host_supported", return_value=True
         ):
             status = self.adapter.host_status()
         self.assertTrue(status.ready)
@@ -102,19 +100,6 @@ class RealAdapterTests(unittest.TestCase):
                 "/usr/bin/image-builder"
             )
         self.assertEqual(version, "52.1")
-
-    def test_unsupported_host_reports_supported_false(self) -> None:
-        with mock.patch(
-            "vemu.imagebuilder._host_supported", return_value=False
-        ), mock.patch(
-            "vemu.imagebuilder._host_name",
-            return_value="Debian GNU/Linux 13 (trixie)",
-        ):
-            status = self.adapter.host_status()
-        self.assertFalse(status.ready)
-        self.assertFalse(status.supported)
-        self.assertIn("RHEL", status.detail)
-        self.assertIn("Debian", status.summary)
 
     def test_image_type_mapping(self) -> None:
         self.assertEqual(
@@ -355,8 +340,6 @@ class RealAdapterCatalogTests(unittest.TestCase):
             returncode=0, stdout=json.dumps(payload), stderr=""
         )
         with mock.patch(
-            "vemu.imagebuilder._host_supported", return_value=True
-        ), mock.patch(
             "vemu.imagebuilder.shutil.which",
             return_value="/usr/bin/image-builder",
         ), mock.patch(
@@ -391,8 +374,6 @@ class RealAdapterCatalogTests(unittest.TestCase):
             returncode=0, stdout=json.dumps(payload), stderr=""
         )
         with mock.patch(
-            "vemu.imagebuilder._host_supported", return_value=True
-        ), mock.patch(
             "vemu.imagebuilder.shutil.which",
             return_value="/usr/bin/image-builder",
         ), mock.patch(
@@ -408,8 +389,6 @@ class RealAdapterCatalogTests(unittest.TestCase):
 
     def test_catalog_reports_missing_tool(self) -> None:
         with mock.patch(
-            "vemu.imagebuilder._host_supported", return_value=True
-        ), mock.patch(
             "vemu.imagebuilder.shutil.which", return_value=None
         ):
             with self.assertRaises(ValidationError):
@@ -418,8 +397,6 @@ class RealAdapterCatalogTests(unittest.TestCase):
     def test_catalog_reports_command_failure(self) -> None:
         result = mock.Mock(returncode=1, stdout="", stderr="catalog boom")
         with mock.patch(
-            "vemu.imagebuilder._host_supported", return_value=True
-        ), mock.patch(
             "vemu.imagebuilder.shutil.which",
             return_value="/usr/bin/image-builder",
         ), mock.patch(
@@ -429,12 +406,6 @@ class RealAdapterCatalogTests(unittest.TestCase):
                 self._adapter().catalog()
         self.assertIn("catalog boom", str(raised.exception))
 
-    def test_catalog_rejects_unsupported_host(self) -> None:
-        with mock.patch(
-            "vemu.imagebuilder._host_supported", return_value=False
-        ):
-            with self.assertRaises(ValidationError):
-                self._adapter().catalog()
 
 
 class BuildJobTests(unittest.TestCase):

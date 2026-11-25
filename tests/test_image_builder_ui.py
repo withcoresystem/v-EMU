@@ -125,23 +125,10 @@ class CatalogDialogTests(unittest.TestCase):
         dialog.close()
 
 
-class _UnsupportedAdapter(FakeImageBuilderAdapter):
-    def host_status(self) -> HostStatus:
-        return HostStatus(
-            ready=False,
-            supported=False,
-            summary="Debian GNU/Linux 13 · unsupported host",
-            detail=(
-                "Image Builder only supports Fedora and RHEL-family hosts."
-            ),
-        )
-
-
 class _MissingToolsAdapter(FakeImageBuilderAdapter):
     def host_status(self) -> HostStatus:
         return HostStatus(
             ready=False,
-            supported=True,
             summary="Fedora Linux 45 · missing image-builder",
             detail="Install image-builder and osbuild.",
         )
@@ -219,18 +206,7 @@ class ImageBuilderPageTests(unittest.TestCase):
         self.assertTrue(page.validate_button.isEnabled())
         self.assertTrue(page.remove_button.isEnabled())
 
-    def test_unsupported_host_disables_build_entry_points(self) -> None:
-        page = ImageBuilderPage(adapter=_UnsupportedAdapter())
-        self.assertFalse(page.new_button.isEnabled())
-        self.assertFalse(page.import_button.isEnabled())
-        self.assertFalse(page.catalog_button.isEnabled())
-        self.assertFalse(page.packages_button.isEnabled())
-        self.assertFalse(page.recheck_button.isEnabled())
-        self.assertFalse(page.host_notice.isHidden())
-        notice = page.host_notice.text()
-        self.assertIn("RHEL", notice)
-
-    def test_supported_host_keeps_recheck_enabled(self) -> None:
+    def test_missing_tools_keeps_recheck_enabled(self) -> None:
         page = ImageBuilderPage(adapter=_MissingToolsAdapter())
         self.assertFalse(page.new_button.isEnabled())
         self.assertFalse(page.catalog_button.isEnabled())

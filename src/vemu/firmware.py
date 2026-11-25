@@ -41,12 +41,6 @@ def firmware_root() -> Path:
     value = os.environ.get("VEMU_FIRMWARE_DIR")
     if value:
         return Path(value).expanduser()
-    # Debian AppArmor only allows firmware below /usr/share/OVMF. setup.sh
-    # installs the custom files there on Debian; prefer that copy when it
-    # exists without changing the Fedora/RHEL layout.
-    ovmf = Path("/usr/share/OVMF/vemu")
-    if ovmf.is_dir():
-        return ovmf
     return DEFAULT_ROOT
 
 

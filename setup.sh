@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# v-EMU source setup for Fedora/RHEL-like and openSUSE/SUSE-like hosts.
+# v-EMU source setup for Fedora and RHEL-family hosts.
 #
 # Modes: --precheck, --standard (x64), --full (x64 + aarch64/riscv64),
 # --uninstall. The script intentionally builds a local virtual environment
@@ -29,35 +29,33 @@ PRECHECK_INSTALL=0
 PURGE=0
 ASSUME_YES=0
 DRY_RUN=0
-DISTRO_FAMILY="unknown"
+DISTRO_FAMILY="fedora"
 
 if [[ -r /etc/os-release ]]; then
     # shellcheck disable=SC1091
     . /etc/os-release
     case " ${ID:-} ${ID_LIKE:-} " in
-        *opensuse*|*suse*|*sles*|*sled*) DISTRO_FAMILY="suse" ;;
-        *fedora*|*rhel*|*centos*|*rocky*|*almalinux*) DISTRO_FAMILY="fedora" ;;
-        *debian*|*ubuntu*) DISTRO_FAMILY="debian" ;;
+        *fedora*|*rhel*|*centos*|*rocky*|*almalinux*) ;;
+        *)
+            echo "v-EMU 0.4.0 supports Fedora and RHEL-family hosts only." >&2
+            echo "Detected: ${PRETTY_NAME:-unknown}" >&2
+            echo "Use the 0.3.1 broad release on other host families." >&2
+            exit 1
+            ;;
     esac
+else
+    echo "Cannot read /etc/os-release; this is not a supported host." >&2
+    exit 1
 fi
 
-# Debian AppArmor's virt-aa-helper only trusts firmware below
-# /usr/share/OVMF. Install the custom firmware there on Debian so UEFI
-# domains can start without weakening the host profile.
+# Custom firmware is installed under the same path on every supported host.
 FIRMWARE_DIR=/usr/share/vemu/firmware
-if [[ $DISTRO_FAMILY == "debian" ]]; then
-    FIRMWARE_DIR=/usr/share/OVMF/vemu
-fi
 
-# PySide6 is optional in several distro repositories. When it is absent we
-# install it from pip; Debian 12 (bookworm) needs the known-good 6.10.2
-# because 6.12.0 segfaults on shutdown in the Qt WebEngine stack. Maintainers
-# can override the pip version with VEMU_PYSIDE6_VERSION.
+# PySide6 is optional in the distribution repositories. When it is absent we
+# install it from pip; maintainers can pin a version with VEMU_PYSIDE6_VERSION.
 PIP_PYSIDE6_SPEC=""
 if [[ -n "${VEMU_PYSIDE6_VERSION:-}" ]]; then
     PIP_PYSIDE6_SPEC="PySide6==${VEMU_PYSIDE6_VERSION}"
-elif [[ $DISTRO_FAMILY == "debian" && "${VERSION_ID:-}" == "12" ]]; then
-    PIP_PYSIDE6_SPEC="PySide6==6.10.2"
 fi
 
 usage() {
@@ -95,9 +93,8 @@ The script creates .venv, installs v-EMU, and links vemu/vemu-ui/vemud into
 ~/.local/bin. --standard/--full also install the system daemon, create the vemu
 group, install the polkit action, and verify the firmware/pflash it installs.
 
-Supported host families: Fedora/RHEL/CentOS/Rocky/AlmaLinux (dnf),
-openSUSE/SUSE-family (zypper) and Debian/Ubuntu (apt).
-SLES/SLED are untested; use them as-is.
+Supported hosts: Fedora and RHEL-family (RHEL, AlmaLinux, Rocky, CentOS).
+Other host families use the 0.3.1 broad release on maint/0.3.
 
 Hard requirements:
   - The host CPU must expose Intel VT-x (vmx) or AMD-V (svm) and /dev/kvm
@@ -295,32 +292,21 @@ if [[ ${#SUDO[@]} -gt 0 && $MODE != "precheck" ]]; then
     fi
 fi
 
-echo "v-EMU setup mode: $MODE ($DISTRO_FAMILY)"
+echo "v-EMU setup mode: $MODE (${ID:-$DISTRO_FAMILY})"
 
 pkg_available() {
-    # Check the RPM database first: dnf/zypper queries can block on metadata
-    # refresh or a PackageKit lock even when the package is already installed.
+    # Check the RPM database first: dnf queries can block on metadata refresh
+    # or a PackageKit lock even when the package is already installed.
     if command -v rpm >/dev/null 2>&1 && rpm -q "$1" >/dev/null 2>&1; then
         return 0
     fi
-    case "$DISTRO_FAMILY" in
-        # Never let a package query inherit the terminal: dnf can prompt to
-        # import a GPG key for an unrelated repo, and with stdout/stderr
-        # redirected that prompt is invisible (setup looks hung). Prefer the
-        # local cache so the probe does not refresh metadata; fall back to a
-        # non-interactive query only when the cache is incomplete.
-        suse) zypper --non-interactive -q info "$1" </dev/null >/dev/null 2>&1 ;;
-        fedora)
-            dnf -q --cacheonly list --available "$1" </dev/null >/dev/null 2>&1 \
-                || dnf -q list --available "$1" </dev/null >/dev/null 2>&1
-            ;;
-        debian)
-            dpkg-query -W -f='${Status}' "$1" 2>/dev/null \
-                | grep -q "install ok installed" && return 0
-            apt-cache show "$1" >/dev/null 2>&1
-            ;;
-        *) return 1 ;;
-    esac
+    # Never let a package query inherit the terminal: dnf can prompt to import
+    # a GPG key for an unrelated repo, and with stdout/stderr redirected that
+    # prompt is invisible (setup looks hung). Prefer the local cache so the
+    # probe does not refresh metadata; fall back to a non-interactive query
+    # only when the cache is incomplete.
+    dnf -q --cacheonly list --available "$1" </dev/null >/dev/null 2>&1 \
+        || dnf -q list --available "$1" </dev/null >/dev/null 2>&1
 }
 
 add_optional_packages() {
@@ -337,14 +323,6 @@ enable_unit() {
 }
 
 enable_virtualization() {
-    if [[ $DISTRO_FAMILY == "debian" ]]; then
-        # Debian package defaults to the monolithic libvirtd service. Do not
-        # start the modular daemons here; they can compete for the same
-        # sockets.
-        enable_unit libvirtd
-        return
-    fi
-
     local modular_available=0 libvirtd_active=0 virtqemud_active=0
     local choice=${VEMU_LIBVIRT_STACK:-} running=0
     if systemctl cat virtqemud.service >/dev/null 2>&1; then
@@ -835,9 +813,6 @@ uninstall_vemu() {
     run "${SUDO[@]}" rm -f /usr/lib/sysusers.d/vemu.conf
     run "${SUDO[@]}" rm -f /usr/share/polkit-1/actions/org.vemu.policy
     run "${SUDO[@]}" rm -rf /usr/share/vemu
-    if [[ "$FIRMWARE_DIR" != "/usr/share/vemu/firmware" ]]; then
-        run "${SUDO[@]}" rm -rf "$FIRMWARE_DIR"
-    fi
 
     local system_site dist data
     system_site=$("$SYSTEM_PYTHON" -c \
@@ -910,29 +885,12 @@ fi
 if [[ $MODE == "full" && $INSTALL_SYSTEM -eq 1 ]]; then
     cross_missing=()
     if ! command -v qemu-system-aarch64 >/dev/null 2>&1; then
-        if [[ $DISTRO_FAMILY == "suse" ]]; then
-            pkg_available qemu-arm || \
-                cross_missing+=("qemu-arm (aarch64)")
-        elif [[ $DISTRO_FAMILY == "debian" ]]; then
-            pkg_available qemu-system-arm || \
-                cross_missing+=("qemu-system-arm (aarch64)")
-        else
-            pkg_available qemu-system-aarch64 || \
-                cross_missing+=("qemu-system-aarch64 (aarch64)")
-        fi
+        pkg_available qemu-system-aarch64 || \
+            cross_missing+=("qemu-system-aarch64 (aarch64)")
     fi
     if ! command -v qemu-system-riscv64 >/dev/null 2>&1; then
-        if [[ $DISTRO_FAMILY == "suse" ]]; then
-            pkg_available qemu-riscv64 || \
-                cross_missing+=("qemu-riscv64 (riscv64)")
-        elif [[ $DISTRO_FAMILY == "debian" ]]; then
-            pkg_available qemu-system-riscv || \
-                pkg_available qemu-system-misc || \
-                cross_missing+=("qemu-system-riscv or qemu-system-misc (riscv64)")
-        else
-            pkg_available qemu-system-riscv || \
-                cross_missing+=("qemu-system-riscv (riscv64)")
-        fi
+        pkg_available qemu-system-riscv || \
+            cross_missing+=("qemu-system-riscv (riscv64)")
     fi
     if [[ ${#cross_missing[@]} -gt 0 ]]; then
         echo "Full install needs cross-arch QEMU, but these packages are not" >&2
@@ -953,133 +911,38 @@ fi
 
 if [[ $INSTALL_SYSTEM -eq 1 ]]; then
     packages=()
-    if [[ "$DISTRO_FAMILY" == "debian" ]]; then
-        if ! command -v apt-get >/dev/null 2>&1; then
-            echo "apt-get was not found. Use --no-system on this host." >&2
-            exit 1
-        fi
-        if ! apt-cache show qemu-system-x86 >/dev/null 2>&1; then
-            echo "Refreshing apt package lists..."
-            "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get update
-        fi
-    fi
-    if [[ "$DISTRO_FAMILY" == "suse" ]]; then
-        if ! command -v zypper >/dev/null 2>&1; then
-            echo "zypper was not found. Use --no-system on this host." >&2
-            exit 1
-        fi
-        PY_TAG=$("$PYTHON" -c \
-            'import sys; print(f"python{sys.version_info[0]}{sys.version_info[1]}")')
-        packages=(
-            qemu-x86 qemu-tools qemu-img xz
-            libvirt-daemon libvirt-client libvirt-daemon-qemu
-            libvirt-daemon-config-network libvirt-daemon-driver-network
-            libvirt-daemon-driver-storage nftables
-            "${PY_TAG}"-pip "${PY_TAG}"-libvirt-python swtpm
-        )
-        # Optional on SLES/openSUSE builds that do not ship these packages.
-        add_optional_packages \
-            guestfs-tools xorriso dosfstools mtools virt-install \
-            virtiofsd qemu-ovmf-x86_64 "${PY_TAG}"-devel \
-            gcc pkgconf-pkg-config policycoreutils \
-            policycoreutils-python-utils selinux-tools \
-            libxkbcommon-x11-0 libgbm1 libnss3 mozilla-nss libgtk-3-0
-        # PySide6 wheels link libgthread; SUSE splits it out of libglib into a
-        # separate compatibility package, so the pip fallback needs it.
-        add_optional_packages libgthread-2_0-0
-        # PySide6 from the distribution is optional; pip is the fallback on
-        # releases that do not package it for the current Python.
-        if pkg_available "${PY_TAG}-pyside6"; then
-            packages+=("${PY_TAG}-pyside6")
-        fi
-        add_optional_packages virt-viewer freerdp "${PY_TAG}-keyring"
-        if [[ $CROSS_ARCH -eq 1 ]]; then
-            add_optional_packages \
-                qemu-arm qemu-riscv64 qemu-uefi-aarch64 qemu-uefi-riscv64
-        fi
-        missing=()
-        for pkg in "${packages[@]}"; do
-            rpm -q "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
-        done
-        if [[ ${#missing[@]} -eq 0 ]]; then
-            echo "Host packages already installed; skipping zypper."
-        else
-            echo "Installing host packages with zypper..."
-            "${SUDO[@]}" zypper --non-interactive install "${missing[@]}"
-        fi
-    elif [[ "$DISTRO_FAMILY" == "fedora" ]]; then
-        if ! command -v dnf >/dev/null 2>&1; then
-            echo "dnf was not found. Use --no-system on this host." >&2
-            exit 1
-        fi
-        packages=(
-            qemu-kvm qemu-img xz libvirt libvirt-client libvirt-daemon-kvm
-            libvirt-daemon-config-network libvirt-daemon-driver-network
-            libvirt-daemon-driver-storage nftables
-            python3 python3-pip python3-libvirt swtpm
-            mesa-libgbm libxkbcommon-x11
-            xcb-util-cursor xcb-util-image xcb-util-keysyms
-            xcb-util-renderutil xcb-util-wm nss gtk3
-        )
-        # Optional; custom firmware is used for new VMs.
-        add_optional_packages \
-            guestfs-tools xorriso dosfstools mtools virt-install \
-            virtiofsd edk2-ovmf virt-viewer freerdp python3-keyring \
-            libvirt-devel python3-devel gcc pkgconf-pkg-config \
-            policycoreutils policycoreutils-python-utils selinux-tools
-        if [[ $CROSS_ARCH -eq 1 ]]; then
-            add_optional_packages \
-                qemu-system-aarch64 qemu-system-riscv edk2-aarch64 edk2-riscv64
-        fi
-        missing=()
-        for pkg in "${packages[@]}"; do
-            rpm -q "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
-        done
-        if [[ ${#missing[@]} -eq 0 ]]; then
-            echo "Host packages already installed; skipping dnf."
-        else
-            echo "Installing host packages with dnf..."
-            "${SUDO[@]}" dnf install -y "${missing[@]}"
-        fi
-    elif [[ "$DISTRO_FAMILY" == "debian" ]]; then
-        packages=(
-            qemu-system-x86 qemu-utils xz-utils
-            libvirt-daemon-system libvirt-clients
-            libvirt-daemon-config-network libvirt-daemon-driver-qemu
-            nftables
-            python3 python3-pip python3-venv python3-libvirt swtpm
-        )
-        # Optional on minimal Debian installs; custom firmware is preferred.
-        add_optional_packages \
-            libguestfs-tools xorriso dosfstools mtools acl \
-            virtiofsd ovmf swtpm-tools \
-            freerdp3-x11 python3-keyring \
-            policycoreutils selinux-utils setools semanage-utils \
-            python3-pyside6.qtwidgets \
-            python3-pyside6.qtwebenginewidgets \
-            python3-pyside6.qtsvg \
-            libgbm1 libxkbcommon-x11-0 libnss3 libgtk-3-0t64
-        if [[ $CROSS_ARCH -eq 1 ]]; then
-            add_optional_packages \
-                qemu-system-arm qemu-system-misc qemu-system-riscv \
-                qemu-efi-aarch64 qemu-efi-riscv64
-        fi
-        missing=()
-        for pkg in "${packages[@]}"; do
-            dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null \
-                | grep -q "install ok installed" || missing+=("$pkg")
-        done
-        if [[ ${#missing[@]} -eq 0 ]]; then
-            echo "Host packages already installed; skipping apt."
-        else
-            echo "Installing host packages with apt..."
-            "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive \
-                apt-get install -y "${missing[@]}"
-        fi
-    else
-        echo "Unsupported host distribution. Use --no-system after installing" >&2
-        echo "the packages listed in docs/MANUAL.md." >&2
+    if ! command -v dnf >/dev/null 2>&1; then
+        echo "dnf was not found. Use --no-system on this host." >&2
         exit 1
+    fi
+    packages=(
+        qemu-kvm qemu-img xz libvirt libvirt-client libvirt-daemon-kvm
+        libvirt-daemon-config-network libvirt-daemon-driver-network
+        libvirt-daemon-driver-storage nftables
+        python3 python3-pip python3-libvirt swtpm
+        mesa-libgbm libxkbcommon-x11
+        xcb-util-cursor xcb-util-image xcb-util-keysyms
+        xcb-util-renderutil xcb-util-wm nss gtk3
+    )
+    # Optional; custom firmware is used for new VMs.
+    add_optional_packages \
+        guestfs-tools xorriso dosfstools mtools virt-install \
+        virtiofsd edk2-ovmf virt-viewer libvirt-devel \
+        python3-devel gcc pkgconf-pkg-config \
+        policycoreutils policycoreutils-python-utils selinux-tools
+    if [[ $CROSS_ARCH -eq 1 ]]; then
+        add_optional_packages \
+            qemu-system-aarch64 qemu-system-riscv edk2-aarch64 edk2-riscv64
+    fi
+    missing=()
+    for pkg in "${packages[@]}"; do
+        rpm -q "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+    done
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        echo "Host packages already installed; skipping dnf."
+    else
+        echo "Installing host packages with dnf..."
+        "${SUDO[@]}" dnf install -y "${missing[@]}"
     fi
 fi
 
@@ -1279,10 +1142,6 @@ if [[ $INSTALL_DAEMON -eq 1 ]]; then
     fi
     VIRT_AFTER="After=libvirtd.service virtqemud.socket virtnodedevd.socket virtnetworkd.service virtstoraged.service"
     VIRT_WANTS="Wants=virtqemud.socket virtnodedevd.socket virtnetworkd.service virtstoraged.service"
-    if [[ $DISTRO_FAMILY == "debian" ]]; then
-        VIRT_AFTER="After=libvirtd.service"
-        VIRT_WANTS="Wants=libvirtd.service"
-    fi
     QEMU_ENV_LINE="EnvironmentFile=-/etc/vemu/qemu.env"
     if [[ -n "${VEMU_QEMU_USER:-}" || -n "${VEMU_QEMU_GROUP:-}" ]]; then
         for qemu_value in "${VEMU_QEMU_USER:-}" "${VEMU_QEMU_GROUP:-}"; do

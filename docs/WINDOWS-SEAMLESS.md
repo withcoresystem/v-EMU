@@ -6,7 +6,7 @@ guest, keeps one supervisor connection and creates Linux shortcuts; Windows
 itself continues to own licensing, updates, UAC and application installs.
 
 This guide covers the Windows-only **Seamless Mode** menu in the v-EMU UI and
-the equivalent CLI commands. It is available in the 0.3.0 release.
+the equivalent CLI commands. It is available in the 0.4.0 release.
 
 ## 1. Before you start
 
@@ -18,7 +18,7 @@ the equivalent CLI commands. It is available in the 0.3.0 release.
 | Display | QXL or VGA. Change the VM XML to QXL/VGA and restart Windows before activation. There is no Set QXL button in the wizard. |
 | SSH | OpenSSH Server is preferred in the template. If absent, the helper enables the Windows capability; this can require Windows Update and a reboot. |
 | Network | A stable address or DHCP reservation is recommended. NAT is fine for one host; bridged networking is fine when the host can reach the guest. |
-| Host | v-EMU daemon running, a desktop session (KDE Wayland is the tested setup), and a compatible FreeRDP client. FreeRDP **>= 3.26.0** is required; **3.33.1** is recommended. Fedora/RHEL-family packages and openSUSE Leap 16.1 work; Debian 13 ships 3.15, which is unsupported for RAIL, so use the Flatpak 3.33.1 fallback. |
+| Host | v-EMU daemon running, a desktop session (KDE Wayland is the tested setup), and a compatible FreeRDP client. FreeRDP **>= 3.26.0** is required; **3.33.1** is recommended. Fedora 45 and Alma/RHEL 10.3 packages work; Alma/RHEL 9.9 ships 2.11, so use the EL9 contrib source build. |
 | Keyring | Optional Python `keyring` support. Without it, v-EMU asks for the password again when a launch needs it. |
 | Storage | The VM must use a v-EMU-managed qcow2 chain if you want the pre-seamless checkpoint. An unmanaged VM can use `--no-checkpoint`, but then Restore is unavailable. |
 
@@ -31,33 +31,30 @@ matrix is:
 | --- | --- | --- |
 | Fedora 45 | 3.33.1 | Full validation |
 | AlmaLinux 10.3 | 3.32.2 (AppStream) | RAIL core and input validated on GNOME Shell 49.5; ensure Xwayland is running after a fresh login |
-| openSUSE Leap 16.1 | 3.26.0 (repo-oss) | RAIL core and input validated; 3.33.1 recommended for icon/resize polish |
-| Debian 13 | 3.15 (distro) | **Not supported**: RAIL can stall at the Windows welcome screen |
+| RHEL 10.3 | 3.32.2 (AppStream) | RAIL validated on KDE Plasma 6.7.5 Wayland through Xwayland |
+| AlmaLinux 9.9 | 2.11.7 (distro) | **Not supported**: use the EL9 contrib build below |
+| AlmaLinux 9.9 (built) | 3.33.1 | Builds with `contrib/setup-freerdp-el9.sh`; Notepad RAIL test passed (template needed EL9 machine/disk adjustment) |
 
-`xfreerdp` and `xfreerdp3` are both accepted. For Debian 13, install the
-Flatpak FreeRDP 3.33.1 client and point `VEMU_XFREERDP` at a small wrapper.
-The Flatpak is an isolated fallback: it may block smartcard, USB redirection,
-OS keyring, filesystem paths or advanced clipboard formats that the distro
-package can access. Do not treat it as feature-equivalent to a system package.
-If your environment depends on those features, use a distribution with a
-current FreeRDP or build one from source.
+RHEL 10.3 ships Xwayland but not a standalone Xorg server or an Xvfb
+package. Run seamless mode from the logged-in Plasma Wayland session. For
+headless validation, a KWin virtual session
+(`kwin_wayland --virtual --xwayland`) provides a `DISPLAY`; the 2026-11-25
+RHEL check used this path and captured a Command Prompt RAIL window.
 
-A minimal direct-launch fallback on Debian 13:
+`xfreerdp` and `xfreerdp3` are both accepted. On AlmaLinux/RHEL 9, the
+distribution FreeRDP is 2.11 and cannot do RAIL.
+`contrib/setup-freerdp-el9.sh` builds FreeRDP 3.33.1 into `/usr/local` and
+leaves the distribution package untouched:
 
 ```bash
-flatpak install --user flathub com.freerdp.FreeRDP
-cat > ~/.local/bin/xfreerdp-flatpak <<'EOF'
-#!/bin/sh
-exec flatpak run --command=xfreerdp com.freerdp.FreeRDP "$@"
-EOF
-chmod +x ~/.local/bin/xfreerdp-flatpak
-VEMU_XFREERDP=~/.local/bin/xfreerdp-flatpak \
-  vemu --direct seamless launch-app DOMAIN APP
+./contrib/setup-freerdp-el9.sh --precheck
+./contrib/setup-freerdp-el9.sh
 ```
 
-Use `--direct` so the user-session environment is visible. Do not assume the
-root daemon or generated shortcuts inherit `VEMU_XFREERDP`; for persistent use,
-configure the daemon environment or install a current distro client.
+`/usr/local/bin` normally wins in PATH, so v-EMU finds the new client first.
+If it does not, set `VEMU_XFREERDP=/usr/local/bin/xfreerdp` for the launch (or
+fix the user-session PATH). This is an EL9 contrib path, not an official host
+tier; test RAIL on the target desktop before relying on it.
 
 
 After cloning a Windows VM, boot it once and install/update QGA, then reboot.
@@ -275,10 +272,10 @@ vemu seamless video DOMAIN --model qxl
 
 ## 8. Validation status
 
-The 0.3.0 flow has been exercised with:
+The 0.4.0 flow has been exercised with:
 
 - bidirectional text clipboard between host and guest;
-- an IPP printer on a Linux test VM backed by CUPS PDF;
+- an IPP printer on a Linux DEV VM backed by CUPS PDF;
 - VirtioFS file sharing with the host;
 - USB passthrough into the Windows guest;
 - audio output (occasional slight stutter accepted);
@@ -287,10 +284,13 @@ The 0.3.0 flow has been exercised with:
   the full run with no transport disconnect.
 - an 18-minute mixed soak (2026-11-19): 27 iterations, a 20,000-row Excel
   workbook, 91 Word pages from repeated Excel→Word paste, 9 CUPS PDF print
-  jobs (PDFs verified on the Fedora test host), an Edge animation page, clipboard
+  jobs (PDFs verified on `DEV-Fedora-45`), an Edge animation page, clipboard
   round-trips, and xlsx/docx saves to the VirtioFS Downloads share (`Z:`).
   Word RPC rejections were retried; the supervisor stayed connected.
   Reproduce it with [`contrib/windows/soak/README.md`](../contrib/windows/soak/README.md).
+- a RHEL 10.3 Command Prompt RAIL test with FreeRDP 3.32.2 on KDE Plasma
+  Wayland through Xwayland (2026-11-25); the window stayed connected and the
+  supervisor log showed no transport failure.
 
 ## 9. Known limitations
 
@@ -312,7 +312,7 @@ The 0.3.0 flow has been exercised with:
 - **Keyboard layout:** FreeRDP forwards physical keycodes and the Windows guest
   applies its own layout. Changing the Linux input source (for example GNOME
   `de`) does not make Notepad type German; configure the Windows layout or use a
-  client keyboard-layout option. Non-US layouts were not validated for 0.3.0.
+  client keyboard-layout option. Non-US layouts were not validated for 0.4.0.
 - **Per-app RDP sessions / multi-session:** not planned as an icon-grouping
   workaround. TermsrvPatcher on the tested Windows 11 26H2 guest allowed
   concurrent sessions only for different Windows users, not for the same user;
@@ -346,7 +346,8 @@ The 0.3.0 flow has been exercised with:
 | Activation says SSH key login not ready | Wait for Windows boot/sshd; check the detailed `Last error`. A per-attempt SSH timeout is retried (up to 90 attempts); the key must be mode 0600 and owned by the desktop user. |
 | Activation says optimizer assets not found | Reinstall with `sudo ./setup.sh --standard` so `share/vemu/windows` is present; verify the daemon can read the installed data files. |
 | Prepare failed and retry seems to add another checkpoint | The pre-prepare checkpoint is now reused: a failed prepare keeps one `seamless-prepare` layer and later retries attach to it instead of creating duplicates. Remove it with the normal rollback/restore flow only if you want to discard that rollback point. |
-| Launch says FreeRDP is too old | Install FreeRDP >= 3.26.0. Debian 13's 3.15 is unsupported; use the Flatpak 3.33.1 fallback and read its sandbox caveats. |
+| Launch says FreeRDP is too old | Install FreeRDP >= 3.26.0. On AlmaLinux/RHEL 9.9 use `contrib/setup-freerdp-el9.sh`. |
+| Test launch reports `ERRCONNECT_LOGON_FAILURE` | Set a known password for the Windows account and retry. A cloned template can keep the source account passwordless even when an OOBE admin password was supplied; reset it in Windows or through QGA. |
 | No RAIL window appears on GNOME after reboot | v-EMU uses xfreerdp through Xwayland. If GNOME has not started Xwayland yet, log out/in or launch a simple X11 client once; an xfreerdp process started before Xwayland can hang without a display. |
 | Store app missing from the list | Enable **Show Store/MSIX apps** and Refresh. |
 | Store app has an Explorer-style path | The state keeps the explorer launcher for RemoteApp; the UI shows **Store app**. Remove/re-add if the package icon is stale. |
@@ -358,7 +359,12 @@ The 0.3.0 flow has been exercised with:
 | Wrong app icon on KDE (for example Excel shows Notepad++) | A shortcut written while GNOME was active kept `StartupWMClass=RAIL`. Activate the domain or run `vemu seamless shortcuts DOMAIN`; v-EMU removes the stale class from all of its shortcuts on KDE. |
 | UAC blocks the session | Answer it in Windows; v-EMU does not bypass secure desktop. |
 
-## 11. Related documents
+## 11. Related design notes
 
-- [`MANUAL.md`](MANUAL.md) — install, daily use and host support.
-- [`USER-GUIDE.md`](USER-GUIDE.md) — concise in-app guide.
+- `docs/design/windows-seamless-overview.md` — feature/security/operations
+  overview.
+- `docs/design/windows-seamless-rdp.md` — protocol/RAIL investigation,
+  checkpoints, Store apps and codec notes.
+- `docs/design/windows-seamless-guide-notes.md` — setup and troubleshooting
+  working notes.
+- `docs/design/windows-guest-architecture.md` — shared guest preparation.
